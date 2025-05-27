@@ -11,7 +11,10 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        run: |
+          git clone $GITHUB_REPOSITORY .
+          git checkout $GITHUB_SHA
+          echo "Checked out commit: $GITHUB_SHA"
 
       - name: Clean disk space
         run: |
@@ -38,22 +41,35 @@ jobs:
             openjdk-11-jdk
 
       - name: Set up Python 3.10
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-
-      - name: Install Python dependencies
         run: |
+          # 安装 Python 3.10
+          sudo apt-get install -y python3.10 python3.10-dev python3.10-venv
+          
+          # 创建虚拟环境
+          python3.10 -m venv venv
+          source venv/bin/activate
+          
+          # 升级 pip
           python -m pip install --upgrade pip
+          
+          # 安装依赖
           pip install buildozer==1.2.0 kivy==2.2.1 pillow==10.0.1 Cython==0.29.32
+          
+          # 验证安装
           pip --version
           cython --version
+          
+          # 导出环境变量
+          echo "VENV_PATH=$(pwd)/venv" >> $GITHUB_ENV
 
       - name: Initialize Buildozer
-        run: buildozer init
+        run: |
+          source $VENV_PATH/bin/activate
+          buildozer init
 
       - name: Configure buildozer.spec
         run: |
+          source $VENV_PATH/bin/activate
           sed -i 's/# android.ndk = .*/android.ndk = 26b/' buildozer.spec
           sed -i 's/# android.api = .*/android.api = 33/' buildozer.spec
           sed -i 's/# android.sdk = .*/android.sdk = 33/' buildozer.spec
@@ -135,6 +151,8 @@ jobs:
 
       - name: Debug environment
         run: |
+          source $VENV_PATH/bin/activate
+          
           # 打印环境变量
           echo "Environment variables:"
           env | grep -i android
@@ -153,6 +171,8 @@ jobs:
 
       - name: Build APK with verbose logging
         run: |
+          source $VENV_PATH/bin/activate
+          
           # 清除 Buildozer 缓存
           buildozer android clean
           

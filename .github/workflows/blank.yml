@@ -1,229 +1,44 @@
-name: Build Android APK with Kivy (Python 3.10)
+name: Build Kivy APK
 
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:
 
 jobs:
-  build-apk:
+  build:
     runs-on: ubuntu-latest
-    
+
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Clean disk space
-        run: |
-          sudo apt-get clean
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          df -h
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y \
-            git \
-            dpkg \
-            build-essential \
-            python3-dev \
-            libffi-dev \
-            libssl-dev \
-            libltdl-dev \
-            autoconf \
-            automake \
-            libtool \
-            unzip \
-            openjdk-11-jdk
-
-      - name: Set up Python 3.10
+      - name: Setup Python 3.10
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: '3.10'
 
-      - name: Install Python dependencies
+      - name: Install Dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install buildozer==1.2.0 kivy==2.2.1 pillow==10.0.1 Cython==0.29.32
-          pip --version
-          cython --version
+          pip install --upgrade pip
+          pip install buildozer cython
 
-      - name: Initialize Buildozer
-        run: buildozer init
-
-      - name: Configure buildozer.spec
+      - name: Install Android SDK (Manual)
         run: |
-          sed -i 's/# android.ndk = .*/android.ndk = 26b/' buildozer.spec
-          sed -i 's/# android.api = .*/android.api = 33/' buildozer.spec
-          sed -i 's/# android.sdk = .*/android.sdk = 33/' buildozer.spec
-          sed -i 's/# requirements = .*/requirements = python3,kivy,pillow,cython/' buildozer.spec
-          sed -i 's/# android.ndk_path = .*/android.ndk_path = \/home\/runner\/.buildozer\/android\/platform\/android-ndk-r26b/' buildozer.spec
-          sed -i 's/# android.accept_sdk_license = .*/android.accept_sdk_license = True/' buildozer.spec
-          sed -i 's/# android.p4a_dir = .*/android.p4a_dir = \/home\/runner\/.buildozer\/android\/platform\/python-for-android/' buildozer.spec
-          cat buildozer.spec
-
-      - name: Download Android SDK and NDK
-        run: |
-          mkdir -p ~/.buildozer/android/platform
-          cd ~/.buildozer/android/platform
-          
-          # 下载 SDK 命令行工具
-          wget -nc https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
-          
-          # 确保目录结构正确
-          mkdir -p android-sdk/cmdline-tools
-          unzip -q commandlinetools-linux-9477386_latest.zip -d android-sdk/cmdline-tools
-          
-          # 重命名目录以匹配 Buildozer 期望的结构
-          if [ -d "android-sdk/cmdline-tools/cmdline-tools" ]; then
-            mv android-sdk/cmdline-tools/cmdline-tools android-sdk/cmdline-tools/latest
-          else
-            mv android-sdk/cmdline-tools/tools android-sdk/cmdline-tools/latest
-          fi
-          
-          # 下载最新稳定版 NDK r26b
-          wget -nc https://dl.google.com/android/repository/android-ndk-r26b-linux.zip
-          unzip -q android-ndk-r26b-linux.zip
-          
-          # 设置环境变量
-          echo "ANDROID_HOME=$HOME/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
-          echo "ANDROID_NDK_HOME=$HOME/.buildozer/android/platform/android-ndk-r26b" >> $GITHUB_ENV
-          echo "PATH=$HOME/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin:$PATH" >> $GITHUB_ENV
-
-      - name: Install SDK components
-        run: |
-          # 验证 sdkmanager 命令是否可用
-          which sdkmanager
-          sdkmanager --version
-          
-          # 接受许可证
+          sudo apt-get update
+          sudo apt-get install -y openjdk-11-jdk unzip ant android-sdk
           yes | sdkmanager --licenses
-          
-          # 安装 SDK 组件
-          sdkmanager "platforms;android-33" "build-tools;33.0.2" "platform-tools"
+          sdkmanager "build-tools;30.0.3" "platforms;android-30" "tools"
+          echo "ANDROID_HOME=/opt/android-sdk" >> $GITHUB_ENV
+          echo "PATH=$ANDROID_HOME/tools:$ANDROID_HOME/platform-tools:$PATH" >> $GITHUB_ENV
 
-      - name: Patch Python for Android
+      - name: Build APK
         run: |
-          # 克隆 Python for Android 仓库
-          git clone https://github.com/kivy/python-for-android.git ~/.buildozer/android/platform/python-for-android
-          
-          # 查找 NDK 版本定义文件
-          echo "Searching for NDK version definition..."
-          find ~/.buildozer/android/platform/python-for-android -name "download.py" -o -name "ndk.py" -o -name "versions.py" -o -name "toolchain.py"
-          
-          # 修改文件
-          sed -i 's/DEFAULT_NDK_VERSION = "25b"/DEFAULT_NDK_VERSION = "26b"/' \
-            ~/.buildozer/android/platform/python-for-android/pythonforandroid/toolchain.py
-          echo "✅ Patched toolchain.py"
-          
-          # 验证修改
-          grep -r "DEFAULT_NDK_VERSION" ~/.buildozer/android/platform/python-for-android
-          
-          # 检查目录权限
-          echo "Checking directory permissions:"
-          ls -la ~/.buildozer/android/platform/python-for-android
-          
-          # 验证 p4a 可执行文件
-          echo "Checking p4a executable:"
-          if [ -f ~/.buildozer/android/platform/python-for-android/pythonforandroid/toolchain.py ]; then
-            echo "✅ p4a toolchain.py found"
-          else
-            echo "❌ ERROR: p4a toolchain.py not found"
-            exit 1
-          fi
+          buildozer -v android debug
+          mkdir artifacts
+          cp bin/*.apk artifacts/
 
-      - name: Debug environment
-        run: |
-          # 打印环境变量
-          echo "Environment variables:"
-          env | grep -i android
-          
-          # 验证文件存在
-          echo "Checking NDK directory:"
-          ls -la $ANDROID_NDK_HOME
-          
-          # 验证 Python for Android 安装
-          echo "Checking Python for Android:"
-          ls -la ~/.buildozer/android/platform/python-for-android
-          
-          # 验证 Buildozer 配置
-          echo "Buildozer configuration:"
-          cat buildozer.spec | grep -i "p4a_dir\|ndk"
-
-      - name: Build APK with verbose logging
-        run: |
-          # 清除 Buildozer 缓存
-          buildozer android clean
-          
-          # 直接使用修改后的 Python for Android 构建
-          buildozer -v android debug --ndk_dir=$ANDROID_NDK_HOME --ndk_version=26b | tee build.log
-          
-          # 检查构建是否成功
-          if [ ! -f "bin/*.apk" ]; then
-            echo "❌ ERROR: No APK found after build"
-            echo "=== Last 200 lines of build log ==="
-            tail -n 200 build.log
-            exit 1
-          fi
-        env:
-          ANDROID_API: 33
-          ANDROID_NDK: 26b
-          JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
-          ANDROID_HOME: ${{ env.ANDROID_HOME }}
-          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
-
-      - name: Verify APK exists
-        run: |
-          if [ -f "bin/*.apk" ]; then
-            echo "✅ APK found!"
-            ls -la bin/
-          else
-            echo "❌ ERROR: No APK found!"
-            exit 1
-          fi
-
-      - name: Archive APK
-        run: |
-          mkdir -p artifacts
-          cp bin/*.apk artifacts/ || echo "No APK found"
-          cp build.log artifacts/ || echo "No build log found"
-          echo "=== APK build completed ==="
-          echo "APK path: $(find artifacts -name '*.apk')"
-          echo "Build log path: $(find artifacts -name 'build.log')"
-          
-          # 输出 APK 文件大小
-          if [ -f artifacts/*.apk ]; then
-            echo "APK size: $(du -h artifacts/*.apk | awk '{print $1}')"
-          fi
-
-      - name: Create GitHub Release
-        if: success()
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # 安装 GitHub CLI
-          if ! command -v gh &> /dev/null; then
-            echo "Installing GitHub CLI..."
-            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-            sudo apt update
-            sudo apt install gh -y
-          fi
-          
-          # 创建发布
-          TAG_NAME="build-$(date +%Y%m%d%H%M%S)"
-          gh release create $TAG_NAME --title "Build $(date +%Y-%m-%d %H:%M:%S)" --notes "Automated build"
-          
-          # 上传 APK
-          if [ -f artifacts/*.apk ]; then
-            APK_FILE=$(find artifacts -name '*.apk')
-            gh release upload $TAG_NAME $APK_FILE --clobber
-          fi
-          
-          # 上传日志
-          if [ -f artifacts/build.log ]; then
-            gh release upload $TAG_NAME artifacts/build.log --clobber
-          fi
-          
-          echo "Release created: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG_NAME"
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: kivy-apk
+          path: artifacts/

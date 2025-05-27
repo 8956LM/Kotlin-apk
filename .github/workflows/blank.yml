@@ -58,6 +58,8 @@ jobs:
           sed -i 's/# android.api = .*/android.api = 33/' buildozer.spec
           sed -i 's/# android.sdk = .*/android.sdk = 33/' buildozer.spec
           sed -i 's/# requirements = .*/requirements = python3,kivy,pillow,cython/' buildozer.spec
+          # 显式设置 NDK 路径
+          sed -i 's/# android.ndk_path = .*/android.ndk_path = \/home\/runner\/.buildozer\/android\/platform\/android-ndk-r26b/' buildozer.spec
           cat buildozer.spec
 
       - name: Download Android SDK and NDK
@@ -72,11 +74,10 @@ jobs:
           mkdir -p android-sdk/cmdline-tools
           unzip -q commandlinetools-linux-9477386_latest.zip -d android-sdk/cmdline-tools
           
-          # 检查是否需要重命名目录
+          # 重命名目录以匹配 Buildozer 期望的结构
           if [ -d "android-sdk/cmdline-tools/cmdline-tools" ]; then
             mv android-sdk/cmdline-tools/cmdline-tools android-sdk/cmdline-tools/latest
           else
-            # 如果解压后直接是 tools 目录，重命名为 latest
             mv android-sdk/cmdline-tools/tools android-sdk/cmdline-tools/latest
           fi
           
@@ -103,8 +104,11 @@ jobs:
 
       - name: Build APK with retry
         run: |
+          # 第一次尝试
           buildozer -v android debug || true
-          buildozer -v android debug
+          
+          # 第二次尝试（使用预下载的 NDK）
+          buildozer -v android debug --ndk_dir=$ANDROID_NDK_HOME --ndk_version=26b
         env:
           ANDROID_API: 33
           ANDROID_NDK: 26b

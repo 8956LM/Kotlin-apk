@@ -60,6 +60,8 @@ jobs:
           sed -i 's/# requirements = .*/requirements = python3,kivy,pillow,cython/' buildozer.spec
           sed -i 's/# android.ndk_path = .*/android.ndk_path = \/home\/runner\/.buildozer\/android\/platform\/android-ndk-r26b/' buildozer.spec
           sed -i 's/# android.accept_sdk_license = .*/android.accept_sdk_license = True/' buildozer.spec
+          # 强制指定 Python for Android 路径
+          sed -i 's/# android.p4a_dir = .*/android.p4a_dir = \/home\/runner\/.buildozer\/android\/platform\/python-for-android/' buildozer.spec
           cat buildozer.spec
 
       - name: Download Android SDK and NDK
@@ -122,6 +124,15 @@ jobs:
           # 检查目录权限
           echo "Checking directory permissions:"
           ls -la ~/.buildozer/android/platform/python-for-android
+          
+          # 验证 p4a 可执行文件
+          echo "Checking p4a executable:"
+          if [ -f ~/.buildozer/android/platform/python-for-android/pythonforandroid/toolchain.py ]; then
+            echo "✅ p4a toolchain.py found"
+          else
+            echo "❌ ERROR: p4a toolchain.py not found"
+            exit 1
+          fi
 
       - name: Debug environment
         run: |
@@ -136,17 +147,24 @@ jobs:
           # 验证 Python for Android 安装
           echo "Checking Python for Android:"
           ls -la ~/.buildozer/android/platform/python-for-android
+          
+          # 验证 Buildozer 配置
+          echo "Buildozer configuration:"
+          cat buildozer.spec | grep -i "p4a_dir\|ndk"
 
       - name: Build APK with verbose logging
         run: |
+          # 清除 Buildozer 缓存
+          buildozer android clean
+          
           # 直接使用修改后的 Python for Android 构建
           buildozer -v android debug --ndk_dir=$ANDROID_NDK_HOME --ndk_version=26b | tee build.log
           
           # 检查构建是否成功
           if [ ! -f "bin/*.apk" ]; then
             echo "❌ ERROR: No APK found after build"
-            echo "=== Last 100 lines of build log ==="
-            tail -n 100 build.log
+            echo "=== Last 200 lines of build log ==="
+            tail -n 200 build.log
             exit 1
           fi
         env:

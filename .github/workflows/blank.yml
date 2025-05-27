@@ -1,30 +1,4 @@
-name: Build Android APK with Kivy
-
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install buildozer
-
-      - name: Patch Python for Android
+- name: Patch Python for Android
         run: |
           set -e  # 确保任何命令失败都会导致脚本退出
           
@@ -65,9 +39,15 @@ jobs:
               echo "✅ Found alternative NDK version definition in:"
               echo "$ndk_file"
               
-              # 修改文件
-              echo "Patching NDK version in alternative file..."
-              sed -i 's/NDK_VERSION = "25b"/NDK_VERSION = "26b"/' "$ndk_file"
+              # 循环处理每个文件
+              echo "Patching NDK version in alternative files..."
+              for file in $ndk_file; do
+                echo "  - Patching $file"
+                sed -i 's/NDK_VERSION = "25b"/NDK_VERSION = "26b"/' "$file" || {
+                  echo "❌ ERROR: Failed to patch $file"
+                  exit 1
+                }
+              done
             fi
           else
             echo "✅ Found NDK version definition in:"
@@ -104,9 +84,3 @@ jobs:
           fi
           
           echo "✅ Python for Android successfully patched!"
-
-      - name: Build APK
-        run: |
-          # 这里添加您的 APK 构建命令
-          echo "Building APK..."
-          # buildozer android debug

@@ -13,25 +13,23 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Checkout upload-artifact action
-        uses: actions/checkout@v4
-        with:
-          repository: actions/upload-artifact
-          ref: v3.1.2  # 指定版本
-          path: .github/actions/upload-artifact  # 本地路径
-
       - name: Set up Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      - name: Build APK
+      - name: Install dependencies
         run: |
           pip install buildozer==1.2.0 kivy==2.2.1 pillow==10.0.1
-          buildozer android.bootstrap --requirements=python3,kivy
-          buildozer android.build
+
+      - name: Initialize Buildozer
+        run: buildozer init  # 创建 buildozer.spec 配置文件
+
+      - name: Build APK
+        run: buildozer -v android debug
         env:
           ANDROID_API: 30
+          ANDROID_NDK: 25c  # 指定 NDK 版本
 
       - name: Verify APK exists
         run: |
@@ -43,8 +41,9 @@ jobs:
             exit 1
           fi
 
-      - name: Upload APK artifact (本地引用)
-        uses: ./.github/actions/upload-artifact  # 本地路径
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v3
+        continue-on-error: true
         with:
           name: apk
           path: bin/*.apk
@@ -54,5 +53,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Uploading APK via GitHub CLI..."
           gh release upload --clobber "v$(date +%Y%m%d)" bin/*.apk || true

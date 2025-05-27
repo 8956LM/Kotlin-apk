@@ -1,31 +1,222 @@
-- name: Create GitHub Release
-  if: success()
-  env:
-    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  run: |
-    # 创建发布
-    TAG_NAME="build-$(date +%Y%m%d%H%M%S)"
-    curl -s -X POST \
-      -H "Authorization: token $GITHUB_TOKEN" \
-      -H "Accept: application/vnd.github.v3+json" \
-      "https://api.github.com/repos/$GITHUB_REPOSITORY/releases" \
-      -d "{\"tag_name\":\"$TAG_NAME\",\"name\":\"Build $(date +%Y-%m-%d %H:%M:%S)\",\"body\":\"Automated build\"}"
+name: Build Android APK with Kivy (Python 3.10)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
     
-    # 获取发布 ID
-    RELEASE_ID=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-      "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$TAG_NAME" \
-      | grep -o '"id": [0-9]*' | grep -o '[0-9]*')
-    
-    # 上传 APK
-    if [ -f bin/*.apk ]; then
-      APK_FILE=$(find bin -name '*.apk')
-      APK_NAME=$(basename $APK_FILE)
-      curl -s -X POST \
-        -H "Authorization: token $GITHUB_TOKEN" \
-        -H "Accept: application/vnd.github.v3+json" \
-        -H "Content-Type: application/octet-stream" \
-        "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$APK_NAME" \
-        --data-binary "@$APK_FILE"
-    fi
-    
-    echo "Release created: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG_NAME"
+    steps:
+      - name: Checkout code
+        run: |
+          git clone $GITHUB_REPOSITORY .
+          git checkout $GITHUB_SHA
+          echo "Checked out commit: $GITHUB_SHA"
+
+      - name: Clean disk space
+        run: |
+          sudo apt-get clean
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          df -h
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            git \
+            dpkg \
+            build-essential \
+            python3-dev \
+            libffi-dev \
+            libssl-dev \
+            libltdl-dev \
+            autoconf \
+            automake \
+            libtool \
+            unzip \
+            openjdk-11-jdk
+
+      - name: Set up Python 3.10
+        run: |
+          # 安装 Python 3.10
+          sudo apt-get install -y python3.10 python3.10-dev python3.10-venv
+          
+          # 创建虚拟环境
+          python3.10 -m venv venv
+          source venv/bin/activate
+          
+          # 升级 pip
+          python -m pip install --upgrade pip
+          
+          # 安装依赖
+          pip install buildozer==1.2.0 kivy==2.2.1 pillow==10.0.1 Cython==0.29.32
+          
+          # 验证安装
+          pip --version
+          cython --version
+          
+          # 导出环境变量
+          echo "VENV_PATH=$(pwd)/venv" >> $GITHUB_ENV
+
+      - name: Initialize Buildozer
+        run: |
+          source $VENV_PATH/bin/activate
+          buildozer init
+
+      - name: Configure buildozer.spec
+        run: |
+          source $VENV_PATH/bin/activate
+          sed -i 's/# android.ndk = .*/android.ndk = 26b/' buildozer.spec
+          sed -i 's/# android.api = .*/android.api = 33/' buildozer.spec
+          sed -i 's/# android.sdk = .*/android.sdk = 33/' buildozer.spec
+          sed -i 's/# requirements = .*/requirements = python3,kivy,pillow,cython/' buildozer.spec
+          sed -i 's/# android.ndk_path = .*/android.ndk_path = \/home\/runner\/.buildozer\/android\/platform\/android-ndk-r26b/' buildozer.spec
+          sed -i 's/# android.accept_sdk_license = .*/android.accept_sdk_license = True/' buildozer.spec
+          sed -i 's/# android.p4a_dir = .*/android.p4a_dir = \/home\/runner\/.buildozer\/android\/platform\/python-for-android/' buildozer.spec
+          cat buildozer.spec
+
+      - name: Download Android SDK and NDK
+        run: |
+          mkdir -p ~/.buildozer/android/platform
+          cd ~/.buildozer/android/platform
+          
+          # 下载 SDK 命令行工具
+          wget -nc https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+          
+          # 确保目录结构正确
+          mkdir -p android-sdk/cmdline-tools
+          unzip -q commandlinetools-linux-9477386_latest.zip -d android-sdk/cmdline-tools
+          
+          # 重命名目录以匹配 Buildozer 期望的结构
+          if [ -d "android-sdk/cmdline-tools/cmdline-tools" ]; then
+            mv android-sdk/cmdline-tools/cmdline-tools android-sdk/cmdline-tools/latest
+          else
+            mv android-sdk/cmdline-tools/tools android-sdk/cmdline-tools/latest
+          fi
+          
+          # 下载最新稳定版 NDK r26b
+          wget -nc https://dl.google.com/android/repository/android-ndk-r26b-linux.zip
+          unzip -q android-ndk-r26b-linux.zip
+          
+          # 设置环境变量
+          echo "ANDROID_HOME=$HOME/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$HOME/.buildozer/android/platform/android-ndk-r26b" >> $GITHUB_ENV
+          echo "PATH=$HOME/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin:$PATH" >> $GITHUB_ENV
+
+      - name: Install SDK components
+        run: |
+          # 验证 sdkmanager 命令是否可用
+          which sdkmanager
+          sdkmanager --version
+          
+          # 接受许可证
+          yes | sdkmanager --licenses
+          
+          # 安装 SDK 组件
+          sdkmanager "platforms;android-33" "build-tools;33.0.2" "platform-tools"
+
+      - name: Patch Python for Android
+        run: |
+          # 克隆 Python for Android 仓库
+          git clone https://github.com/kivy/python-for-android.git ~/.buildozer/android/platform/python-for-android
+          
+          # 修改 NDK 版本定义
+          sed -i 's/DEFAULT_NDK_VERSION = "25b"/DEFAULT_NDK_VERSION = "26b"/' \
+            ~/.buildozer/android/platform/python-for-android/pythonforandroid/toolchain.py
+          
+          # 验证修改
+          grep -r "DEFAULT_NDK_VERSION" ~/.buildozer/android/platform/python-for-android
+
+      - name: Build APK with verbose logging
+        run: |
+          source $VENV_PATH/bin/activate
+          
+          # 清除 Buildozer 缓存
+          buildozer android clean
+          
+          # 构建 APK
+          buildozer -v android debug --ndk_dir=$ANDROID_NDK_HOME --ndk_version=26b | tee build.log
+          
+          # 检查构建是否成功
+          if [ ! -f "bin/*.apk" ]; then
+            echo "❌ ERROR: No APK found after build"
+            echo "=== Last 200 lines of build log ==="
+            tail -n 200 build.log
+            exit 1
+          fi
+        env:
+          ANDROID_API: 33
+          ANDROID_NDK: 26b
+          JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+
+      - name: Verify APK exists
+        run: |
+          if [ -f "bin/*.apk" ]; then
+            echo "✅ APK found!"
+            ls -la bin/
+          else
+            echo "❌ ERROR: No APK found!"
+            exit 1
+          fi
+
+      - name: Archive APK
+        run: |
+          mkdir -p artifacts
+          cp bin/*.apk artifacts/ || echo "No APK found"
+          cp build.log artifacts/ || echo "No build log found"
+          echo "=== APK build completed ==="
+          echo "APK path: $(find artifacts -name '*.apk')"
+          echo "Build log path: $(find artifacts -name 'build.log')"
+          
+          # 输出 APK 文件大小
+          if [ -f artifacts/*.apk ]; then
+            echo "APK size: $(du -h artifacts/*.apk | awk '{print $1}')"
+          fi
+
+      - name: Create GitHub Release
+        if: success()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 创建发布
+          TAG_NAME="build-$(date +%Y%m%d%H%M%S)"
+          curl -s -X POST \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases" \
+            -d "{\"tag_name\":\"$TAG_NAME\",\"name\":\"Build $(date +%Y-%m-%d %H:%M:%S)\",\"body\":\"Automated build\"}"
+          
+          # 获取发布 ID
+          RELEASE_ID=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$TAG_NAME" \
+            | grep -o '"id": [0-9]*' | grep -o '[0-9]*')
+          
+          # 上传 APK
+          if [ -f artifacts/*.apk ]; then
+            APK_FILE=$(find artifacts -name '*.apk')
+            APK_NAME=$(basename $APK_FILE)
+            curl -s -X POST \
+              -H "Authorization: token $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github.v3+json" \
+              -H "Content-Type: application/octet-stream" \
+              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$APK_NAME" \
+              --data-binary "@$APK_FILE"
+          fi
+          
+          # 上传日志
+          if [ -f artifacts/build.log ]; then
+            curl -s -X POST \
+              -H "Authorization: token $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github.v3+json" \
+              -H "Content-Type: text/plain" \
+              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=build.log" \
+              --data-binary "@artifacts/build.log"
+          fi
+          
+          echo "Release created: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG_NAME"

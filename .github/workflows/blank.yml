@@ -1,4 +1,30 @@
-- name: Patch Python for Android
+name: Build Android APK with Kivy
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install buildozer
+
+      - name: Patch Python for Android
         run: |
           set -e  # 确保任何命令失败都会导致脚本退出
           
@@ -24,13 +50,13 @@
           
           # 查找实际包含 NDK 版本定义的文件
           echo "Searching for NDK version definition in files..."
-          ndk_files=$(grep -rl "DEFAULT_NDK_VERSION" ~/.buildozer/android/platform/python-for-android || true)
+          ndk_files=$(grep -rl "DEFAULT_NDK_VERSION\|NDK_VERSION" ~/.buildozer/android/platform/python-for-android || true)
           
           if [ -z "$ndk_files" ]; then
-            echo "⚠️ WARNING: DEFAULT_NDK_VERSION not found. Trying alternative method..."
+            echo "⚠️ WARNING: Could not find NDK version definition in any file. Trying alternative patterns..."
             
-            # 尝试新的版本定义方式
-            ndk_files=$(grep -rl "NDK_VERSION" ~/.buildozer/android/platform/python-for-android || true)
+            # 尝试更多版本定义模式
+            ndk_files=$(grep -rl "ndk_version\|default_ndk_version\|NDK_REVISION" ~/.buildozer/android/platform/python-for-android || true)
             
             if [ -z "$ndk_files" ]; then
               echo "❌ ERROR: Could not find NDK version definition in any file"
@@ -38,76 +64,66 @@
             else
               echo "✅ Found alternative NDK version definition in:"
               echo "$ndk_files"
-              
-              # 确保文件存在并可写
-              echo "Verifying file existence and permissions..."
-              for file in $ndk_files; do
-                if [ ! -f "$file" ]; then
-                  echo "❌ ERROR: File does not exist: $file"
-                  exit 1
-                fi
-                if [ ! -w "$file" ]; then
-                  echo "❌ ERROR: File is not writable: $file"
-                  exit 1
-                fi
-                echo "  - File exists and is writable: $file"
-              done
-              
-              # 循环处理每个文件
-              echo "Patching NDK version in alternative files..."
-              patch_success=false
-              for file in $ndk_files; do
-                echo "  - Patching $file"
-                if sed -i 's/NDK_VERSION = "25b"/NDK_VERSION = "26b"/' "$file"; then
-                  patch_success=true
-                  echo "    ✅ Successfully patched $file"
-                else
-                  echo "    ❌ Failed to patch $file"
-                fi
-              done
-              
-              # 验证是否有任何文件被成功修补
-              if [ "$patch_success" = false ]; then
-                echo "❌ ERROR: Failed to patch any files"
-                exit 1
-              fi
             fi
           else
             echo "✅ Found NDK version definition in:"
             echo "$ndk_files"
-            
-            # 确保文件存在并可写
-            echo "Verifying file existence and permissions..."
-            for file in $ndk_files; do
-              if [ ! -f "$file" ]; then
-                echo "❌ ERROR: File does not exist: $file"
-                exit 1
-              fi
-              if [ ! -w "$file" ]; then
-                echo "❌ ERROR: File is not writable: $file"
-                exit 1
-              fi
-              echo "  - File exists and is writable: $file"
-            done
-            
-            # 循环处理每个文件
-            echo "Patching toolchain.py..."
-            patch_success=false
-            for file in $ndk_files; do
-              echo "  - Patching $file"
-              if sed -i 's/DEFAULT_NDK_VERSION = "25b"/DEFAULT_NDK_VERSION = "26b"/' "$file"; then
-                patch_success=true
-                echo "    ✅ Successfully patched $file"
-              else
-                echo "    ❌ Failed to patch $file"
-              fi
-            done
-            
-            # 验证是否有任何文件被成功修补
-            if [ "$patch_success" = false ]; then
-              echo "❌ ERROR: Failed to patch any files"
-              exit 1
+          fi
+          
+          # 验证文件是否存在
+          file_exists=false
+          for file in $ndk_files; do
+            if [ -f "$file" ]; then
+              file_exists=true
+              echo "✅ File exists: $file"
+            else
+              echo "⚠️ WARNING: File does not exist: $file"
             fi
+          done
+          
+          if [ "$file_exists" = false ]; then
+            echo "❌ ERROR: None of the found files exist"
+            exit 1
+          fi
+          
+          # 循环处理每个文件
+          echo "Patching NDK version in files..."
+          patch_success=false
+          
+          # 尝试多种可能的替换模式
+          patterns=(
+            "s/DEFAULT_NDK_VERSION = \"25b\"/DEFAULT_NDK_VERSION = \"26b\"/g"
+            "s/NDK_VERSION = \"25b\"/NDK_VERSION = \"26b\"/g"
+            "s/ndk_version = \"25b\"/ndk_version = \"26b\"/g"
+            "s/DEFAULT_NDK_VERSION='25b'/DEFAULT_NDK_VERSION='26b'/g"
+            "s/NDK_VERSION='25b'/NDK_VERSION='26b'/g"
+            "s/ndk_version='25b'/ndk_version='26b'/g"
+          )
+          
+          for file in $ndk_files; do
+            if [ -f "$file" ] && [ -w "$file" ]; then
+              echo "  - Processing file: $file"
+              
+              # 尝试每种替换模式
+              for pattern in "${patterns[@]}"; do
+                echo "    - Trying pattern: $pattern"
+                sed -i "$pattern" "$file"
+                if grep -q "26b" "$file"; then
+                  echo "    ✅ Successfully patched $file"
+                  patch_success=true
+                  break
+                else
+                  echo "    ❌ Pattern did not match in $file"
+                fi
+              done
+            else
+              echo "  ❌ Skipping file (not found or not writable): $file"
+            fi
+          done
+          
+          if [ "$patch_success" = false ]; then
+            echo "❌ ERROR: Failed to patch any files"
+            exit 1
           fi
           
           # 验证修改
@@ -136,3 +152,9 @@
           fi
           
           echo "✅ Python for Android successfully patched!"
+
+      - name: Build APK
+        run: |
+          # 这里添加您的 APK 构建命令
+          echo "Building APK..."
+          # buildozer android debug

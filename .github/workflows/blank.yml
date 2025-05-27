@@ -1,4 +1,112 @@
-- name: Patch Python for Android
+name: Build Android APK with Kivy (Python 3.10)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Clean disk space
+        run: |
+          sudo apt-get clean
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          df -h
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            git \
+            dpkg \
+            build-essential \
+            python3-dev \
+            libffi-dev \
+            libssl-dev \
+            libltdl-dev \
+            autoconf \
+            automake \
+            libtool \
+            unzip \
+            openjdk-11-jdk
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install buildozer==1.2.0 kivy==2.2.1 pillow==10.0.1 Cython==0.29.32
+          pip --version
+          cython --version
+
+      - name: Initialize Buildozer
+        run: buildozer init
+
+      - name: Configure buildozer.spec
+        run: |
+          sed -i 's/# android.ndk = .*/android.ndk = 26b/' buildozer.spec
+          sed -i 's/# android.api = .*/android.api = 33/' buildozer.spec
+          sed -i 's/# android.sdk = .*/android.sdk = 33/' buildozer.spec
+          sed -i 's/# requirements = .*/requirements = python3,kivy,pillow,cython/' buildozer.spec
+          sed -i 's/# android.ndk_path = .*/android.ndk_path = \/home\/runner\/.buildozer\/android\/platform\/android-ndk-r26b/' buildozer.spec
+          sed -i 's/# android.accept_sdk_license = .*/android.accept_sdk_license = True/' buildozer.spec
+          sed -i 's/# android.p4a_dir = .*/android.p4a_dir = \/home\/runner\/.buildozer\/android\/platform\/python-for-android/' buildozer.spec
+          # 添加一些额外配置以确保兼容性
+          sed -i 's/# android.arch = .*/android.arch = armeabi-v7a,arm64-v8a,x86_64/' buildozer.spec
+          sed -i 's/# android.api_min = .*/android.api_min = 21/' buildozer.spec
+          cat buildozer.spec
+
+      - name: Download Android SDK and NDK
+        run: |
+          mkdir -p ~/.buildozer/android/platform
+          cd ~/.buildozer/android/platform
+          
+          # 下载 SDK 命令行工具
+          wget -nc https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+          
+          # 确保目录结构正确
+          mkdir -p android-sdk/cmdline-tools
+          unzip -q commandlinetools-linux-9477386_latest.zip -d android-sdk/cmdline-tools
+          
+          # 重命名目录以匹配 Buildozer 期望的结构
+          if [ -d "android-sdk/cmdline-tools/cmdline-tools" ]; then
+            mv android-sdk/cmdline-tools/cmdline-tools android-sdk/cmdline-tools/latest
+          else
+            mv android-sdk/cmdline-tools/tools android-sdk/cmdline-tools/latest
+          fi
+          
+          # 下载最新稳定版 NDK r26b
+          wget -nc https://dl.google.com/android/repository/android-ndk-r26b-linux.zip
+          unzip -q android-ndk-r26b-linux.zip
+          
+          # 设置环境变量
+          echo "ANDROID_HOME=$HOME/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$HOME/.buildozer/android/platform/android-ndk-r26b" >> $GITHUB_ENV
+          echo "PATH=$HOME/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin:$PATH" >> $GITHUB_ENV
+
+      - name: Install SDK components
+        run: |
+          # 验证 sdkmanager 命令是否可用
+          which sdkmanager
+          sdkmanager --version
+          
+          # 接受许可证
+          yes | sdkmanager --licenses
+          
+          # 安装 SDK 组件
+          sdkmanager "platforms;android-33" "build-tools;33.0.2" "platform-tools"
+
+      - name: Patch Python for Android
         run: |
           set -e  # 确保任何命令失败都会导致脚本退出
           
@@ -57,3 +165,5 @@
           grep "DEFAULT_NDK_VERSION" ~/.buildozer/android/platform/python-for-android/pythonforandroid/toolchain.py
           
           echo "✅ Python for Android successfully patched!"
+
+      # 后续步骤保持不变...

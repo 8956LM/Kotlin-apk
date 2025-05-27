@@ -11,7 +11,8 @@ jobs:
     permissions:
       contents: read
       packages: write  # 确保有上传权限
-    
+      artifacts: write  # 明确工件上传权限
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -24,8 +25,7 @@ jobs:
       - name: Install Buildozer and Kivy
         run: |
           pip install buildozer==1.2.0
-          pip install kivy==2.2.1
-          pip install pillow==10.0.1
+          pip install kivy==2.2.1 pillow==10.0.1
 
       - name: Buildozer bootstrap
         run: buildozer android.bootstrap --requirements=python3,kivy
@@ -35,16 +35,33 @@ jobs:
         env:
           ANDROID_API: 30
 
-      - name: Archive APK (备用方案)
-        if: success() || failure()  # 确保无论构建结果如何都执行
+      - name: Verify APK exists
+        run: |
+          if [ -f "bin/*.apk" ]; then
+            echo "✅ APK found!"
+            ls -la bin/
+          else
+            echo "❌ ERROR: No APK found in bin/ directory!"
+            exit 1
+          fi
+
+      - name: Archive APK (备选方案)
         run: |
           mkdir -p artifacts
           cp bin/*.apk artifacts/ || echo "No APK found"
           echo "ARTIFACT_PATH=$(pwd)/artifacts" >> $GITHUB_ENV
 
       - name: Upload APK artifact
-        uses: actions/upload-artifact@v3.1.2
+        uses: actions/upload-artifact@v3
         continue-on-error: true  # 允许上传失败
         with:
           name: apk
           path: bin/*.apk
+
+      - name: Upload via GitHub CLI (备选方案)
+        if: success()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Uploading APK via GitHub CLI..."
+          gh release upload --clobber "v$(date +%Y%m%d)" artifacts/*.apk || true

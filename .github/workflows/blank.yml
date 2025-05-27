@@ -10,12 +10,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: https://github.com/actions/checkout@v4
+        uses: actions/checkout@v4  # 修复：使用正确的动作引用
 
       - name: Setup Python 3.10
-        uses: https://github.com/actions/setup-python@v5
-        with:
-          python-version: '3.10'
+        uses: actions/setup-python@v5  # 修复：使用正确的动作引用
 
       - name: Install Dependencies
         run: |
@@ -40,7 +38,7 @@ jobs:
           cp bin/*.apk artifacts/
 
       - name: Upload APK
-        uses: https://github.com/actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4  # 修复：使用正确版本 v4
         with:
           name: kivy-apk
           path: artifacts/

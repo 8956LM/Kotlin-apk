@@ -54,8 +54,8 @@ jobs:
 
       - name: Configure buildozer.spec
         run: |
-          sed -i 's/# android.ndk = .*/android.ndk = 26b/' buildozer.spec  # 更新为 26b
-          sed -i 's/# android.api = .*/android.api = 33/' buildozer.spec  # 更新为 33
+          sed -i 's/# android.ndk = .*/android.ndk = 26b/' buildozer.spec
+          sed -i 's/# android.api = .*/android.api = 33/' buildozer.spec
           sed -i 's/# android.sdk = .*/android.sdk = 33/' buildozer.spec
           sed -i 's/# requirements = .*/requirements = python3,kivy,pillow,cython/' buildozer.spec
           cat buildozer.spec
@@ -69,27 +69,38 @@ jobs:
           wget -nc https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
           unzip -q commandlinetools-linux-9477386_latest.zip -d android-sdk
           
+          # 确保正确的目录结构
+          mkdir -p android-sdk/cmdline-tools/latest
+          cp -r android-sdk/cmdline-tools/* android-sdk/cmdline-tools/latest/
+          
           # 下载最新稳定版 NDK r26b
           wget -nc https://dl.google.com/android/repository/android-ndk-r26b-linux.zip
           unzip -q android-ndk-r26b-linux.zip
           
           # 设置环境变量
           echo "ANDROID_HOME=$HOME/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
-          echo "ANDROID_NDK_HOME=$HOME/.buildozer/android/platform/android-ndk-r26b" >> $GITHUB_ENV  # 更新为 r26b
+          echo "ANDROID_NDK_HOME=$HOME/.buildozer/android/platform/android-ndk-r26b" >> $GITHUB_ENV
           echo "PATH=$HOME/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin:$PATH" >> $GITHUB_ENV
 
       - name: Install SDK components
         run: |
+          # 验证 sdkmanager 命令是否可用
+          which sdkmanager
+          sdkmanager --version
+          
+          # 接受许可证
           yes | sdkmanager --licenses
-          sdkmanager "platforms;android-33" "build-tools;33.0.2" "platform-tools"  # 更新为 33
+          
+          # 安装 SDK 组件
+          sdkmanager "platforms;android-33" "build-tools;33.0.2" "platform-tools"
 
       - name: Build APK with retry
         run: |
           buildozer -v android debug || true
           buildozer -v android debug
         env:
-          ANDROID_API: 33  # 更新为 33
-          ANDROID_NDK: 26b  # 更新为 26b
+          ANDROID_API: 33
+          ANDROID_NDK: 26b
           JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}

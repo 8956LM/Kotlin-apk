@@ -183,58 +183,16 @@ jobs:
             exit 1
           fi
 
-      - name: Archive APK
+      - name: Debug final step
         run: |
-          mkdir -p artifacts
-          cp bin/*.apk artifacts/ || echo "No APK found"
-          cp build.log artifacts/ || echo "No build log found"
-          echo "=== APK build completed ==="
-          echo "APK path: $(find artifacts -name '*.apk')"
-          echo "Build log path: $(find artifacts -name 'build.log')"
+          echo "=== Build completed successfully ==="
+          echo "Runner environment:"
+          env
+          echo "GitHub Actions version: 2.324.0"
           
-          # 输出 APK 文件大小
-          if [ -f artifacts/*.apk ]; then
-            echo "APK size: $(du -h artifacts/*.apk | awk '{print $1}')"
+          # 打印 APK 位置
+          if [ -f "bin/*.apk" ]; then
+            APK_PATH=$(find bin -name '*.apk')
+            echo "APK location: $APK_PATH"
+            echo "APK size: $(du -h $APK_PATH | awk '{print $1}')"
           fi
-
-      - name: Create GitHub Release
-        if: success()
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # 创建发布
-          TAG_NAME="build-$(date +%Y%m%d%H%M%S)"
-          curl -s -X POST \
-            -H "Authorization: token $GITHUB_TOKEN" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases" \
-            -d "{\"tag_name\":\"$TAG_NAME\",\"name\":\"Build $(date +%Y-%m-%d %H:%M:%S)\",\"body\":\"Automated build\"}"
-          
-          # 获取发布 ID
-          RELEASE_ID=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$TAG_NAME" \
-            | grep -o '"id": [0-9]*' | grep -o '[0-9]*')
-          
-          # 上传 APK
-          if [ -f artifacts/*.apk ]; then
-            APK_FILE=$(find artifacts -name '*.apk')
-            APK_NAME=$(basename $APK_FILE)
-            curl -s -X POST \
-              -H "Authorization: token $GITHUB_TOKEN" \
-              -H "Accept: application/vnd.github.v3+json" \
-              -H "Content-Type: application/octet-stream" \
-              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$APK_NAME" \
-              --data-binary "@$APK_FILE"
-          fi
-          
-          # 上传日志
-          if [ -f artifacts/build.log ]; then
-            curl -s -X POST \
-              -H "Authorization: token $GITHUB_TOKEN" \
-              -H "Accept: application/vnd.github.v3+json" \
-              -H "Content-Type: text/plain" \
-              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=build.log" \
-              --data-binary "@artifacts/build.log"
-          fi
-          
-          echo "Release created: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG_NAME"

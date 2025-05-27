@@ -11,10 +11,7 @@ jobs:
     
     steps:
       - name: Checkout code
-        run: |
-          git clone $GITHUB_REPOSITORY .
-          git checkout $GITHUB_SHA
-          echo "Checked out commit: $GITHUB_SHA"
+        uses: actions/checkout@v4
 
       - name: Clean disk space
         run: |
@@ -41,35 +38,22 @@ jobs:
             openjdk-11-jdk
 
       - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install Python dependencies
         run: |
-          # 安装 Python 3.10
-          sudo apt-get install -y python3.10 python3.10-dev python3.10-venv
-          
-          # 创建虚拟环境
-          python3.10 -m venv venv
-          source venv/bin/activate
-          
-          # 升级 pip
           python -m pip install --upgrade pip
-          
-          # 安装依赖
           pip install buildozer==1.2.0 kivy==2.2.1 pillow==10.0.1 Cython==0.29.32
-          
-          # 验证安装
           pip --version
           cython --version
-          
-          # 导出环境变量
-          echo "VENV_PATH=$(pwd)/venv" >> $GITHUB_ENV
 
       - name: Initialize Buildozer
-        run: |
-          source $VENV_PATH/bin/activate
-          buildozer init
+        run: buildozer init
 
       - name: Configure buildozer.spec
         run: |
-          source $VENV_PATH/bin/activate
           sed -i 's/# android.ndk = .*/android.ndk = 26b/' buildozer.spec
           sed -i 's/# android.api = .*/android.api = 33/' buildozer.spec
           sed -i 's/# android.sdk = .*/android.sdk = 33/' buildozer.spec
@@ -151,8 +135,6 @@ jobs:
 
       - name: Debug environment
         run: |
-          source $VENV_PATH/bin/activate
-          
           # 打印环境变量
           echo "Environment variables:"
           env | grep -i android
@@ -171,8 +153,6 @@ jobs:
 
       - name: Build APK with verbose logging
         run: |
-          source $VENV_PATH/bin/activate
-          
           # 清除 Buildozer 缓存
           buildozer android clean
           
@@ -203,7 +183,7 @@ jobs:
             exit 1
           fi
 
-      - name: Archive APK (without upload)
+      - name: Archive APK
         run: |
           mkdir -p artifacts
           cp bin/*.apk artifacts/ || echo "No APK found"
@@ -217,33 +197,44 @@ jobs:
             echo "APK size: $(du -h artifacts/*.apk | awk '{print $1}')"
           fi
 
-      - name: Debug final step
+      - name: Create GitHub Release
+        if: success()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "=== Build completed successfully ==="
-          echo "Runner environment:"
-          env
-          echo "GitHub Actions version: 2.324.0"
+          # 创建发布
+          TAG_NAME="build-$(date +%Y%m%d%H%M%S)"
+          curl -s -X POST \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases" \
+            -d "{\"tag_name\":\"$TAG_NAME\",\"name\":\"Build $(date +%Y-%m-%d %H:%M:%S)\",\"body\":\"Automated build\"}"
           
-          # 生成一个简单的 HTML 报告
-          cat > artifacts/build-report.html << EOF
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <title>Build Report</title>
-            <style>
-              body { font-family: Arial, sans-serif; margin: 20px; }
-              .success { color: green; }
-              .error { color: red; }
-            </style>
-          </head>
-          <body>
-            <h1>Build Report</h1>
-            <p>Build completed: $(date)</p>
-            <p>Runner version: 2.324.0</p>
-            <p>APK size: $(du -h artifacts/*.apk 2>/dev/null | awk '{print $1}' || echo "Not found")</p>
-            <p class="success">✅ Build completed successfully</p>
-          </body>
-          </html>
-          EOF
+          # 获取发布 ID
+          RELEASE_ID=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$TAG_NAME" \
+            | grep -o '"id": [0-9]*' | grep -o '[0-9]*')
           
-          echo "HTML report generated: artifacts/build-report.html"
+          # 上传 APK
+          if [ -f artifacts/*.apk ]; then
+            APK_FILE=$(find artifacts -name '*.apk')
+            APK_NAME=$(basename $APK_FILE)
+            curl -s -X POST \
+              -H "Authorization: token $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github.v3+json" \
+              -H "Content-Type: application/octet-stream" \
+              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$APK_NAME" \
+              --data-binary "@$APK_FILE"
+          fi
+          
+          # 上传日志
+          if [ -f artifacts/build.log ]; then
+            curl -s -X POST \
+              -H "Authorization: token $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github.v3+json" \
+              -H "Content-Type: text/plain" \
+              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=build.log" \
+              --data-binary "@artifacts/build.log"
+          fi
+          
+          echo "Release created: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG_NAME"

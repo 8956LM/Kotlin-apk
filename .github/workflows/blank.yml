@@ -1,4 +1,4 @@
-name: Build Kivy APK
+name: Build Kivy APK with Docker
 
 on:
   push:
@@ -7,76 +7,27 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    container:
+      image: kivy/buildozer:latest  # 官方预配置的 Buildozer Docker 镜像
+      options: --privileged  # 授予必要权限
 
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Python 3.10
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install buildozer cython
-
-      - name: Setup Android SDK with License Acceptance
-        uses: android-actions/setup-android@v2
-        with:
-          packages: |
-            build-tools;30.0.3
-            platforms;android-30
-            platform-tools
-          license-accept: true
-
-      - name: Verify buildozer.spec exists
+      - name: Generate buildozer.spec (if missing)
         run: |
           if [ ! -f buildozer.spec ]; then
-            buildozer init
-            # 修改默认配置（可选）
+            buildozer init -v
             sed -i 's/package.name = myapp/package.name = your_app_name/' buildozer.spec
+            sed -i 's/requirements =.*/requirements = python3,kivy/' buildozer.spec
           fi
-          cat buildozer.spec  # 打印配置用于调试
-
-      - name: Manually Accept SDK Licenses
-        run: |
-          # 创建许可证目录并写入接受文件
-          mkdir -p $ANDROID_HOME/licenses
-          echo -e "\n8933bad161af4178b1185d1a37fbf41ea5269c8" > $ANDROID_HOME/licenses/android-sdk-license
-          echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd" > $ANDROID_HOME/licenses/android-sdk-preview-license
-          echo -e "\nd56f5187479451eabf01fb78af6dfcb131a6481e" > $ANDROID_HOME/licenses/intel-android-extra-license
-          # 验证许可证文件存在
-          ls -la $ANDROID_HOME/licenses
-
-      - name: Install Required Build Tools
-        run: |
-          # 确认 SDK 路径
-          echo "ANDROID_HOME: $ANDROID_HOME"
-          echo "PATH: $PATH"
-          
-          # 安装指定版本的 build-tools
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;30.0.3"
-          
-          # 验证 build-tools 已安装
-          ls -la $ANDROID_HOME/build-tools/30.0.3
-          
-          # 验证 aidl 工具存在
-          $ANDROID_HOME/build-tools/30.0.3/aidl --version
+          cat buildozer.spec
 
       - name: Build APK
         run: |
-          # 强制指定 SDK 路径（确保 Buildozer 使用正确的 SDK）
-          export ANDROID_SDK_ROOT=$ANDROID_HOME
-          
-          # 验证环境变量
-          echo "ANDROID_HOME: $ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT: $ANDROID_SDK_ROOT"
-          
-          # 构建 APK
           buildozer -v android debug
-          mkdir artifacts
+          mkdir -p artifacts
           cp bin/*.apk artifacts/
 
       - name: Upload APK

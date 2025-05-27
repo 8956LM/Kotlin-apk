@@ -10,15 +10,23 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4  # 修复：使用正确的动作引用
+        uses: actions/checkout@v4
 
       - name: Setup Python 3.10
-        uses: actions/setup-python@v5  # 修复：使用正确的动作引用
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'  # 添加缓存加速依赖安装
+
+      - name: Verify Python Version
+        run: |
+          python --version
+          python -m pip --version
 
       - name: Install Dependencies
         run: |
-          python3.10 -m pip install --upgrade pip
-          python3.10 -m pip install buildozer cython
+          python -m pip install --upgrade pip
+          python -m pip install buildozer cython
 
       - name: Install Android SDK (Manual)
         run: |
@@ -38,7 +46,7 @@ jobs:
           cp bin/*.apk artifacts/
 
       - name: Upload APK
-        uses: actions/upload-artifact@v4  # 修复：使用正确版本 v4
+        uses: actions/upload-artifact@v4  # 使用正确版本
         with:
           name: kivy-apk
           path: artifacts/

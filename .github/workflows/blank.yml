@@ -11,10 +11,7 @@ jobs:
     
     steps:
       - name: Checkout code
-        run: |
-          git clone $GITHUB_REPOSITORY .
-          git checkout $GITHUB_SHA
-          echo "Checked out commit: $GITHUB_SHA"
+        uses: actions/checkout@v4
 
       - name: Clean disk space
         run: |
@@ -41,35 +38,22 @@ jobs:
             openjdk-11-jdk
 
       - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install Python dependencies
         run: |
-          # 安装 Python 3.10
-          sudo apt-get install -y python3.10 python3.10-dev python3.10-venv
-          
-          # 创建虚拟环境
-          python3.10 -m venv venv
-          source venv/bin/activate
-          
-          # 升级 pip
           python -m pip install --upgrade pip
-          
-          # 安装依赖
           pip install buildozer==1.2.0 kivy==2.2.1 pillow==10.0.1 Cython==0.29.32
-          
-          # 验证安装
           pip --version
           cython --version
-          
-          # 导出环境变量
-          echo "VENV_PATH=$(pwd)/venv" >> $GITHUB_ENV
 
       - name: Initialize Buildozer
-        run: |
-          source $VENV_PATH/bin/activate
-          buildozer init
+        run: buildozer init
 
       - name: Configure buildozer.spec
         run: |
-          source $VENV_PATH/bin/activate
           sed -i 's/# android.ndk = .*/android.ndk = 26b/' buildozer.spec
           sed -i 's/# android.api = .*/android.api = 33/' buildozer.spec
           sed -i 's/# android.sdk = .*/android.sdk = 33/' buildozer.spec
@@ -124,21 +108,55 @@ jobs:
           # 克隆 Python for Android 仓库
           git clone https://github.com/kivy/python-for-android.git ~/.buildozer/android/platform/python-for-android
           
-          # 修改 NDK 版本定义
+          # 查找 NDK 版本定义文件
+          echo "Searching for NDK version definition..."
+          find ~/.buildozer/android/platform/python-for-android -name "download.py" -o -name "ndk.py" -o -name "versions.py" -o -name "toolchain.py"
+          
+          # 修改文件
           sed -i 's/DEFAULT_NDK_VERSION = "25b"/DEFAULT_NDK_VERSION = "26b"/' \
             ~/.buildozer/android/platform/python-for-android/pythonforandroid/toolchain.py
+          echo "✅ Patched toolchain.py"
           
           # 验证修改
           grep -r "DEFAULT_NDK_VERSION" ~/.buildozer/android/platform/python-for-android
+          
+          # 检查目录权限
+          echo "Checking directory permissions:"
+          ls -la ~/.buildozer/android/platform/python-for-android
+          
+          # 验证 p4a 可执行文件
+          echo "Checking p4a executable:"
+          if [ -f ~/.buildozer/android/platform/python-for-android/pythonforandroid/toolchain.py ]; then
+            echo "✅ p4a toolchain.py found"
+          else
+            echo "❌ ERROR: p4a toolchain.py not found"
+            exit 1
+          fi
+
+      - name: Debug environment
+        run: |
+          # 打印环境变量
+          echo "Environment variables:"
+          env | grep -i android
+          
+          # 验证文件存在
+          echo "Checking NDK directory:"
+          ls -la $ANDROID_NDK_HOME
+          
+          # 验证 Python for Android 安装
+          echo "Checking Python for Android:"
+          ls -la ~/.buildozer/android/platform/python-for-android
+          
+          # 验证 Buildozer 配置
+          echo "Buildozer configuration:"
+          cat buildozer.spec | grep -i "p4a_dir\|ndk"
 
       - name: Build APK with verbose logging
         run: |
-          source $VENV_PATH/bin/activate
-          
           # 清除 Buildozer 缓存
           buildozer android clean
           
-          # 构建 APK
+          # 直接使用修改后的 Python for Android 构建
           buildozer -v android debug --ndk_dir=$ANDROID_NDK_HOME --ndk_version=26b | tee build.log
           
           # 检查构建是否成功
@@ -184,39 +202,28 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # 安装 GitHub CLI
+          if ! command -v gh &> /dev/null; then
+            echo "Installing GitHub CLI..."
+            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+            sudo apt update
+            sudo apt install gh -y
+          fi
+          
           # 创建发布
           TAG_NAME="build-$(date +%Y%m%d%H%M%S)"
-          curl -s -X POST \
-            -H "Authorization: token $GITHUB_TOKEN" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases" \
-            -d "{\"tag_name\":\"$TAG_NAME\",\"name\":\"Build $(date +%Y-%m-%d %H:%M:%S)\",\"body\":\"Automated build\"}"
-          
-          # 获取发布 ID
-          RELEASE_ID=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$TAG_NAME" \
-            | grep -o '"id": [0-9]*' | grep -o '[0-9]*')
+          gh release create $TAG_NAME --title "Build $(date +%Y-%m-%d %H:%M:%S)" --notes "Automated build"
           
           # 上传 APK
           if [ -f artifacts/*.apk ]; then
             APK_FILE=$(find artifacts -name '*.apk')
-            APK_NAME=$(basename $APK_FILE)
-            curl -s -X POST \
-              -H "Authorization: token $GITHUB_TOKEN" \
-              -H "Accept: application/vnd.github.v3+json" \
-              -H "Content-Type: application/octet-stream" \
-              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$APK_NAME" \
-              --data-binary "@$APK_FILE"
+            gh release upload $TAG_NAME $APK_FILE --clobber
           fi
           
           # 上传日志
           if [ -f artifacts/build.log ]; then
-            curl -s -X POST \
-              -H "Authorization: token $GITHUB_TOKEN" \
-              -H "Accept: application/vnd.github.v3+json" \
-              -H "Content-Type: text/plain" \
-              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=build.log" \
-              --data-binary "@artifacts/build.log"
+            gh release upload $TAG_NAME artifacts/build.log --clobber
           fi
           
           echo "Release created: https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG_NAME"

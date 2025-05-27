@@ -13,6 +13,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Clean disk space
+        run: |
+          sudo apt-get clean
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          df -h
+
       - name: Install system dependencies
         run: |
           sudo apt-get update -y
@@ -28,7 +35,7 @@ jobs:
             automake \
             libtool \
             unzip \
-            openjdk-11-jdk  # Android 构建需要 JDK
+            openjdk-11-jdk
 
       - name: Set up Python 3.10
         uses: actions/setup-python@v5
@@ -45,12 +52,49 @@ jobs:
       - name: Initialize Buildozer
         run: buildozer init
 
-      - name: Build APK
-        run: buildozer -v android debug
+      - name: Configure buildozer.spec
+        run: |
+          sed -i 's/# android.ndk = .*/android.ndk = 25b/' buildozer.spec
+          sed -i 's/# android.api = .*/android.api = 30/' buildozer.spec
+          sed -i 's/# android.sdk = .*/android.sdk = 33/' buildozer.spec
+          sed -i 's/# requirements = .*/requirements = python3,kivy,pillow,cython/' buildozer.spec
+          cat buildozer.spec
+
+      - name: Download Android SDK and NDK
+        run: |
+          mkdir -p ~/.buildozer/android/platform
+          cd ~/.buildozer/android/platform
+          
+          # 下载 SDK 命令行工具
+          wget -nc https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+          unzip -q commandlinetools-linux-9477386_latest.zip -d android-sdk
+          
+          # 下载 NDK r25b
+          wget -nc https://dl.google.com/android/repository/android-ndk-r25b-linux-x86_64.zip
+          unzip -q android-ndk-r25b-linux-x86_64.zip
+          
+          # 设置环境变量
+          echo "ANDROID_HOME=$HOME/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$HOME/.buildozer/android/platform/android-ndk-r25b" >> $GITHUB_ENV
+          echo "PATH=$HOME/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin:$PATH" >> $GITHUB_ENV
+
+      - name: Install SDK components
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager "platforms;android-30" "build-tools;30.0.3" "platform-tools"
+
+      - name: Build APK with retry
+        run: |
+          # 第一次尝试（可能会失败，但会缓存依赖）
+          buildozer -v android debug || true
+          # 第二次尝试（使用缓存的依赖）
+          buildozer -v android debug
         env:
           ANDROID_API: 30
-          ANDROID_NDK: 25c
-          JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64  # 设置 JAVA_HOME
+          ANDROID_NDK: 25b
+          JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
 
       - name: Verify APK exists
         run: |

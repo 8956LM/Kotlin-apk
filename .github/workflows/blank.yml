@@ -54,7 +54,7 @@ jobs:
 
       - name: Configure buildozer.spec
         run: |
-          sed -i 's/# android.ndk = .*/android.ndk = 25b/' buildozer.spec
+          sed -i 's/# android.ndk = .*/android.ndk = 25c/' buildozer.spec  # 更改为 25c
           sed -i 's/# android.api = .*/android.api = 30/' buildozer.spec
           sed -i 's/# android.sdk = .*/android.sdk = 33/' buildozer.spec
           sed -i 's/# requirements = .*/requirements = python3,kivy,pillow,cython/' buildozer.spec
@@ -69,13 +69,13 @@ jobs:
           wget -nc https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
           unzip -q commandlinetools-linux-9477386_latest.zip -d android-sdk
           
-          # 下载 NDK r25b
-          wget -nc https://dl.google.com/android/repository/android-ndk-r25b-linux-x86_64.zip
-          unzip -q android-ndk-r25b-linux-x86_64.zip
+          # 下载可用的 NDK 版本 (r25c)
+          wget -nc https://dl.google.com/android/repository/android-ndk-r25c-linux-x86_64.zip
+          unzip -q android-ndk-r25c-linux-x86_64.zip
           
           # 设置环境变量
           echo "ANDROID_HOME=$HOME/.buildozer/android/platform/android-sdk" >> $GITHUB_ENV
-          echo "ANDROID_NDK_HOME=$HOME/.buildozer/android/platform/android-ndk-r25b" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$HOME/.buildozer/android/platform/android-ndk-r25c" >> $GITHUB_ENV  # 更新为 r25c
           echo "PATH=$HOME/.buildozer/android/platform/android-sdk/cmdline-tools/latest/bin:$PATH" >> $GITHUB_ENV
 
       - name: Install SDK components
@@ -85,13 +85,11 @@ jobs:
 
       - name: Build APK with retry
         run: |
-          # 第一次尝试（可能会失败，但会缓存依赖）
           buildozer -v android debug || true
-          # 第二次尝试（使用缓存的依赖）
           buildozer -v android debug
         env:
           ANDROID_API: 30
-          ANDROID_NDK: 25b
+          ANDROID_NDK: 25c  # 更新为 25c
           JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
           ANDROID_HOME: ${{ env.ANDROID_HOME }}
           ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}

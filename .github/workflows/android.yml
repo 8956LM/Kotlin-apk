@@ -9,9 +9,8 @@ jobs:
   build-apk:
     runs-on: ubuntu-latest
     permissions:
-      contents: read  # 必需：读取代码仓库
-      packages: write  # 可选：用于上传包（如 Docker 镜像）
-      # 移除无效的 `artifacts` 键名
+      contents: read
+      packages: write
 
     steps:
       - name: Checkout code
@@ -51,9 +50,9 @@ jobs:
           cp bin/*.apk artifacts/ || echo "No APK found"
           echo "ARTIFACT_PATH=$(pwd)/artifacts" >> $GITHUB_ENV
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v3
-        continue-on-error: true  # 允许上传失败
+      - name: Upload APK artifact (使用固定 SHA 值)
+        uses: actions/upload-artifact@82c141cc518b40d92cc801eee768e7aafc9c2fa8  # v3.1.2 的 SHA 值
+        continue-on-error: true
         with:
           name: apk
           path: bin/*.apk

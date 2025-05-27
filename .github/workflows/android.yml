@@ -8,29 +8,28 @@ on:
 jobs:
   build-apk:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Checkout upload-artifact action
+        uses: actions/checkout@v4
+        with:
+          repository: actions/upload-artifact
+          ref: v3.1.2  # 指定版本
+          path: .github/actions/upload-artifact  # 本地路径
 
       - name: Set up Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      - name: Install Buildozer and Kivy
-        run: |
-          pip install buildozer==1.2.0
-          pip install kivy==2.2.1 pillow==10.0.1
-
-      - name: Buildozer bootstrap
-        run: buildozer android.bootstrap --requirements=python3,kivy
-
       - name: Build APK
-        run: buildozer android.build
+        run: |
+          pip install buildozer==1.2.0 kivy==2.2.1 pillow==10.0.1
+          buildozer android.bootstrap --requirements=python3,kivy
+          buildozer android.build
         env:
           ANDROID_API: 30
 
@@ -40,19 +39,12 @@ jobs:
             echo "✅ APK found!"
             ls -la bin/
           else
-            echo "❌ ERROR: No APK found in bin/ directory!"
+            echo "❌ ERROR: No APK found!"
             exit 1
           fi
 
-      - name: Archive APK (备选方案)
-        run: |
-          mkdir -p artifacts
-          cp bin/*.apk artifacts/ || echo "No APK found"
-          echo "ARTIFACT_PATH=$(pwd)/artifacts" >> $GITHUB_ENV
-
-      - name: Upload APK artifact (使用固定 SHA 值)
-        uses: actions/upload-artifact@82c141cc518b40d92cc801eee768e7aafc9c2fa8  # v3.1.2 的 SHA 值
-        continue-on-error: true
+      - name: Upload APK artifact (本地引用)
+        uses: ./.github/actions/upload-artifact  # 本地路径
         with:
           name: apk
           path: bin/*.apk
@@ -63,4 +55,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Uploading APK via GitHub CLI..."
-          gh release upload --clobber "v$(date +%Y%m%d)" artifacts/*.apk || true
+          gh release upload --clobber "v$(date +%Y%m%d)" bin/*.apk || true

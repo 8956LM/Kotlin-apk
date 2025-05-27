@@ -109,33 +109,46 @@ jobs:
           
           # 查找 NDK 版本定义文件
           echo "Searching for NDK version definition..."
-          find ~/.buildozer/android/platform/python-for-android -name "download.py" -o -name "ndk.py" -o -name "versions.py"
+          find ~/.buildozer/android/platform/python-for-android -name "download.py" -o -name "ndk.py" -o -name "versions.py" -o -name "toolchain.py"
           
-          # 尝试多个可能的文件路径
-          if [ -f ~/.buildozer/android/platform/python-for-android/pythonforandroid/recipes/ndk/versions.py ]; then
-            sed -i 's/DEFAULT_NDK_VERSION = "25b"/DEFAULT_NDK_VERSION = "26b"/' \
-              ~/.buildozer/android/platform/python-for-android/pythonforandroid/recipes/ndk/versions.py
-            echo "✅ Patched versions.py"
-          elif [ -f ~/.buildozer/android/platform/python-for-android/pythonforandroid/toolchain.py ]; then
-            sed -i 's/DEFAULT_NDK_VERSION = "25b"/DEFAULT_NDK_VERSION = "26b"/' \
-              ~/.buildozer/android/platform/python-for-android/pythonforandroid/toolchain.py
-            echo "✅ Patched toolchain.py"
-          elif [ -f ~/.buildozer/android/platform/python-for-android/pythonforandroid/recipes/ndk/ndk.py ]; then
-            sed -i 's/DEFAULT_NDK_VERSION = "25b"/DEFAULT_NDK_VERSION = "26b"/' \
-              ~/.buildozer/android/platform/python-for-android/pythonforandroid/recipes/ndk/ndk.py
-            echo "✅ Patched ndk.py"
-          else
-            echo "❌ ERROR: Could not find NDK version definition file"
-            exit 1
-          fi
+          # 修改文件
+          sed -i 's/DEFAULT_NDK_VERSION = "25b"/DEFAULT_NDK_VERSION = "26b"/' \
+            ~/.buildozer/android/platform/python-for-android/pythonforandroid/toolchain.py
+          echo "✅ Patched toolchain.py"
           
           # 验证修改
           grep -r "DEFAULT_NDK_VERSION" ~/.buildozer/android/platform/python-for-android
+          
+          # 检查目录权限
+          echo "Checking directory permissions:"
+          ls -la ~/.buildozer/android/platform/python-for-android
 
-      - name: Build APK
+      - name: Debug environment
+        run: |
+          # 打印环境变量
+          echo "Environment variables:"
+          env | grep -i android
+          
+          # 验证文件存在
+          echo "Checking NDK directory:"
+          ls -la $ANDROID_NDK_HOME
+          
+          # 验证 Python for Android 安装
+          echo "Checking Python for Android:"
+          ls -la ~/.buildozer/android/platform/python-for-android
+
+      - name: Build APK with verbose logging
         run: |
           # 直接使用修改后的 Python for Android 构建
-          buildozer -v android debug --ndk_dir=$ANDROID_NDK_HOME --ndk_version=26b
+          buildozer -v android debug --ndk_dir=$ANDROID_NDK_HOME --ndk_version=26b | tee build.log
+          
+          # 检查构建是否成功
+          if [ ! -f "bin/*.apk" ]; then
+            echo "❌ ERROR: No APK found after build"
+            echo "=== Last 100 lines of build log ==="
+            tail -n 100 build.log
+            exit 1
+          fi
         env:
           ANDROID_API: 33
           ANDROID_NDK: 26b
@@ -157,6 +170,7 @@ jobs:
         run: |
           mkdir -p artifacts
           cp bin/*.apk artifacts/ || echo "No APK found"
+          cp build.log artifacts/ || echo "No build log found"
           echo "ARTIFACT_PATH=$(pwd)/artifacts" >> $GITHUB_ENV
 
       - name: Upload via GitHub CLI
@@ -165,3 +179,4 @@ jobs:
         run: |
           gh release create "v$(date +%Y%m%d)" --title "Build $(date +%Y%m%d)" --notes "Automated build"
           gh release upload "v$(date +%Y%m%d)" artifacts/*.apk --clobber
+          gh release upload "v$(date +%Y%m%d)" artifacts/build.log --clobber

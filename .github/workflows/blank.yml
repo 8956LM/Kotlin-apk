@@ -58,8 +58,10 @@ jobs:
           sed -i 's/# android.api = .*/android.api = 33/' buildozer.spec
           sed -i 's/# android.sdk = .*/android.sdk = 33/' buildozer.spec
           sed -i 's/# requirements = .*/requirements = python3,kivy,pillow,cython/' buildozer.spec
-          # 显式设置 NDK 路径
+          # 强制指定 NDK 路径
           sed -i 's/# android.ndk_path = .*/android.ndk_path = \/home\/runner\/.buildozer\/android\/platform\/android-ndk-r26b/' buildozer.spec
+          # 禁用 NDK 自动检测
+          sed -i 's/# android.accept_sdk_license = .*/android.accept_sdk_license = True/' buildozer.spec
           cat buildozer.spec
 
       - name: Download Android SDK and NDK
@@ -102,12 +104,21 @@ jobs:
           # 安装 SDK 组件
           sdkmanager "platforms;android-33" "build-tools;33.0.2" "platform-tools"
 
-      - name: Build APK with retry
+      - name: Patch Python for Android
         run: |
-          # 第一次尝试
-          buildozer -v android debug || true
+          # 克隆 Python for Android 仓库
+          git clone https://github.com/kivy/python-for-android.git ~/.buildozer/android/platform/python-for-android
           
-          # 第二次尝试（使用预下载的 NDK）
+          # 编辑版本检测文件，强制使用 r26b
+          sed -i 's/DEFAULT_NDK_VERSION = "25b"/DEFAULT_NDK_VERSION = "26b"/' \
+            ~/.buildozer/android/platform/python-for-android/pythonforandroid/recipes/ndk/download.py
+          
+          # 验证修改
+          grep "DEFAULT_NDK_VERSION" ~/.buildozer/android/platform/python-for-android/pythonforandroid/recipes/ndk/download.py
+
+      - name: Build APK
+        run: |
+          # 直接使用修改后的 Python for Android 构建
           buildozer -v android debug --ndk_dir=$ANDROID_NDK_HOME --ndk_version=26b
         env:
           ANDROID_API: 33

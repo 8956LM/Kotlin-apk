@@ -21,6 +21,10 @@ jobs:
       - name: Install dependencies
         run: |
           pip install buildozer==1.2.0 kivy==2.2.1 pillow==10.0.1
+          pip install Cython==0.29.32  # 显式安装 Cython
+          python -m pip install --upgrade pip  # 升级 pip
+          pip --version
+          cython --version  # 验证 Cython 安装
 
       - name: Initialize Buildozer
         run: buildozer init
@@ -30,6 +34,7 @@ jobs:
         env:
           ANDROID_API: 30
           ANDROID_NDK: 25c
+          PATH: ${{ github.workspace }}/.local/bin:${{ env.PATH }}  # 添加本地 bin 目录到 PATH
 
       - name: Verify APK exists
         run: |
@@ -41,17 +46,15 @@ jobs:
             exit 1
           fi
 
-      - name: Archive APK (备选方案)
+      - name: Archive APK
         run: |
           mkdir -p artifacts
           cp bin/*.apk artifacts/ || echo "No APK found"
           echo "ARTIFACT_PATH=$(pwd)/artifacts" >> $GITHUB_ENV
 
-      - name: Upload via GitHub CLI (主要上传方法)
+      - name: Upload via GitHub CLI
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 创建临时 Release
           gh release create "v$(date +%Y%m%d)" --title "Build $(date +%Y%m%d)" --notes "Automated build"
-          # 上传 APK
           gh release upload "v$(date +%Y%m%d)" artifacts/*.apk --clobber

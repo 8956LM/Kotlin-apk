@@ -24,38 +24,90 @@
           
           # 查找实际包含 NDK 版本定义的文件
           echo "Searching for NDK version definition in files..."
-          ndk_file=$(grep -rl "DEFAULT_NDK_VERSION" ~/.buildozer/android/platform/python-for-android || true)
+          ndk_files=$(grep -rl "DEFAULT_NDK_VERSION" ~/.buildozer/android/platform/python-for-android || true)
           
-          if [ -z "$ndk_file" ]; then
+          if [ -z "$ndk_files" ]; then
             echo "⚠️ WARNING: DEFAULT_NDK_VERSION not found. Trying alternative method..."
             
             # 尝试新的版本定义方式
-            ndk_file=$(grep -rl "NDK_VERSION" ~/.buildozer/android/platform/python-for-android || true)
+            ndk_files=$(grep -rl "NDK_VERSION" ~/.buildozer/android/platform/python-for-android || true)
             
-            if [ -z "$ndk_file" ]; then
+            if [ -z "$ndk_files" ]; then
               echo "❌ ERROR: Could not find NDK version definition in any file"
               exit 1
             else
               echo "✅ Found alternative NDK version definition in:"
-              echo "$ndk_file"
+              echo "$ndk_files"
+              
+              # 确保文件存在并可写
+              echo "Verifying file existence and permissions..."
+              for file in $ndk_files; do
+                if [ ! -f "$file" ]; then
+                  echo "❌ ERROR: File does not exist: $file"
+                  exit 1
+                fi
+                if [ ! -w "$file" ]; then
+                  echo "❌ ERROR: File is not writable: $file"
+                  exit 1
+                fi
+                echo "  - File exists and is writable: $file"
+              done
               
               # 循环处理每个文件
               echo "Patching NDK version in alternative files..."
-              for file in $ndk_file; do
+              patch_success=false
+              for file in $ndk_files; do
                 echo "  - Patching $file"
-                sed -i 's/NDK_VERSION = "25b"/NDK_VERSION = "26b"/' "$file" || {
-                  echo "❌ ERROR: Failed to patch $file"
-                  exit 1
-                }
+                if sed -i 's/NDK_VERSION = "25b"/NDK_VERSION = "26b"/' "$file"; then
+                  patch_success=true
+                  echo "    ✅ Successfully patched $file"
+                else
+                  echo "    ❌ Failed to patch $file"
+                fi
               done
+              
+              # 验证是否有任何文件被成功修补
+              if [ "$patch_success" = false ]; then
+                echo "❌ ERROR: Failed to patch any files"
+                exit 1
+              fi
             fi
           else
             echo "✅ Found NDK version definition in:"
-            echo "$ndk_file"
+            echo "$ndk_files"
             
-            # 修改文件
+            # 确保文件存在并可写
+            echo "Verifying file existence and permissions..."
+            for file in $ndk_files; do
+              if [ ! -f "$file" ]; then
+                echo "❌ ERROR: File does not exist: $file"
+                exit 1
+              fi
+              if [ ! -w "$file" ]; then
+                echo "❌ ERROR: File is not writable: $file"
+                exit 1
+              fi
+              echo "  - File exists and is writable: $file"
+            done
+            
+            # 循环处理每个文件
             echo "Patching toolchain.py..."
-            sed -i 's/DEFAULT_NDK_VERSION = "25b"/DEFAULT_NDK_VERSION = "26b"/' "$ndk_file"
+            patch_success=false
+            for file in $ndk_files; do
+              echo "  - Patching $file"
+              if sed -i 's/DEFAULT_NDK_VERSION = "25b"/DEFAULT_NDK_VERSION = "26b"/' "$file"; then
+                patch_success=true
+                echo "    ✅ Successfully patched $file"
+              else
+                echo "    ❌ Failed to patch $file"
+              fi
+            done
+            
+            # 验证是否有任何文件被成功修补
+            if [ "$patch_success" = false ]; then
+              echo "❌ ERROR: Failed to patch any files"
+              exit 1
+            fi
           fi
           
           # 验证修改

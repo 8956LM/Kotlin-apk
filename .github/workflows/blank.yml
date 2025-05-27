@@ -16,8 +16,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          # 移除 cache 参数，避免找不到依赖文件的错误
-          # cache: 'pip'  # 注释掉或删除此行
 
       - name: Verify Python Version
         run: |
@@ -31,14 +29,39 @@ jobs:
 
       - name: Install Android SDK (Manual)
         run: |
+          # 安装必要的系统依赖
           sudo apt-get update
-          sudo apt-get install -y openjdk-11-jdk unzip ant android-sdk android-sdk-platform-tools android-sdk-build-tools
-          yes | sdkmanager --licenses
-          sdkmanager "build-tools;30.0.3" "platforms;android-30" "tools"
+          sudo apt-get install -y openjdk-11-jdk unzip ant
+
+          # 下载 Android SDK 命令行工具
+          mkdir -p /tmp/android-sdk
+          cd /tmp/android-sdk
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip
+          unzip -q commandlinetools-linux-10406996_latest.zip
+          
+          # 设置环境变量
           export ANDROID_HOME=/usr/lib/android-sdk
-          export PATH=$ANDROID_HOME/tools:$ANDROID_HOME/platform-tools:$PATH
-          echo $ANDROID_HOME
-          echo $PATH
+          export ANDROID_SDK_ROOT=/usr/lib/android-sdk
+          export PATH=$PATH:/tmp/android-sdk/cmdline-tools/latest/bin
+          
+          # 创建 SDK 目录并复制工具
+          sudo mkdir -p $ANDROID_HOME/cmdline-tools
+          sudo cp -r /tmp/android-sdk/cmdline-tools $ANDROID_HOME/
+          sudo mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
+          
+          # 验证 sdkmanager 可用
+          sdkmanager --version
+          
+          # 接受许可证
+          yes | sdkmanager --licenses
+          
+          # 安装构建工具和平台
+          sdkmanager "build-tools;30.0.3" "platforms;android-30" "platform-tools"
+          
+          # 导出环境变量供后续步骤使用
+          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+          echo "PATH=$PATH" >> $GITHUB_ENV
 
       - name: Build APK
         run: |
@@ -47,7 +70,7 @@ jobs:
           cp bin/*.apk artifacts/
 
       - name: Upload APK
-        uses: actions/upload-artifact@v4  # 修复：使用正确版本 v4
+        uses: actions/upload-artifact@v4
         with:
           name: kivy-apk
           path: artifacts/

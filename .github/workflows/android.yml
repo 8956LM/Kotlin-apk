@@ -9,9 +9,9 @@ jobs:
   build-apk:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      packages: write  # 确保有上传权限
-      artifacts: write  # 明确工件上传权限
+      contents: read  # 必需：读取代码仓库
+      packages: write  # 可选：用于上传包（如 Docker 镜像）
+      # 移除无效的 `artifacts` 键名
 
     steps:
       - name: Checkout code

@@ -203,3 +203,27 @@ jobs:
           echo "Runner environment:"
           env
           echo "GitHub Actions version: 2.324.0"
+          
+          # 生成一个简单的 HTML 报告
+          cat > artifacts/build-report.html << EOF
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Build Report</title>
+            <style>
+              body { font-family: Arial, sans-serif; margin: 20px; }
+              .success { color: green; }
+              .error { color: red; }
+            </style>
+          </head>
+          <body>
+            <h1>Build Report</h1>
+            <p>Build completed: $(date)</p>
+            <p>Runner version: 2.324.0</p>
+            <p>APK size: $(du -h artifacts/*.apk 2>/dev/null | awk '{print $1}' || echo "Not found")</p>
+            <p class="success">✅ Build completed successfully</p>
+          </body>
+          </html>
+          EOF
+          
+          echo "HTML report generated: artifacts/build-report.html"

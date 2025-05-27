@@ -17,52 +17,22 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Verify Python Version
-        run: |
-          python --version
-          python -m pip --version
-
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install buildozer cython
 
-      - name: Install Android SDK (Manual)
-        run: |
-          # 安装必要的系统依赖
-          sudo apt-get update
-          sudo apt-get install -y openjdk-11-jdk unzip ant
-
-          # 创建 Android SDK 目录
-          mkdir -p /tmp/android-sdk
-          cd /tmp/android-sdk
-
-          # 下载 Android SDK 命令行工具
-          wget -q https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip
-          unzip -q commandlinetools-linux-10406996_latest.zip
-
-          # 设置环境变量
-          export ANDROID_HOME=/usr/lib/android-sdk
-          export ANDROID_SDK_ROOT=/usr/lib/android-sdk
-          export PATH=$PATH:/tmp/android-sdk/cmdline-tools/bin
-
-          # 验证 sdkmanager 可用
-          sdkmanager --version
-
-          # 创建 SDK 目录并复制工具
-          sudo mkdir -p $ANDROID_HOME/cmdline-tools
-          sudo cp -r /tmp/android-sdk/cmdline-tools $ANDROID_HOME/
-
-          # 接受许可证
-          yes | sdkmanager --licenses
-
-          # 安装构建工具和平台
-          sdkmanager "build-tools;30.0.3" "platforms;android-30" "platform-tools"
-
-          # 导出环境变量供后续步骤使用
-          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-          echo "PATH=$PATH" >> $GITHUB_ENV
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v2
+        with:
+          # 安装指定版本的 SDK 工具（与 Buildozer 兼容）
+          packages: |
+            build-tools;30.0.3
+            platforms;android-30
+            platform-tools
+            tools
+          # 自动接受许可证
+          license-accept: true
 
       - name: Build APK
         run: |

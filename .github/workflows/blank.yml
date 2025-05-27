@@ -1,36 +1,56 @@
-# This is a basic workflow to help you get started with Actions
+name: Build Android APK with Kivy (Python 3.10)
 
-name: CI
-
-# Controls when the workflow will run
 on:
-  # Triggers the workflow on push or pull request events but only for the "main" branch
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-
-  # Allows you to run this workflow manually from the Actions tab
+    branches: [ main ]
   workflow_dispatch:
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  # This workflow contains a single job called "build"
-  build:
-    # The type of runner that the job will run on
+  build-apk:
     runs-on: ubuntu-latest
-
-    # Steps represent a sequence of tasks that will be executed as part of the job
+    
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      # Runs a single command using the runners shell
-      - name: Run a one-line script
-        run: echo Hello, world!
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
 
-      # Runs a set of commands using the runners shell
-      - name: Run a multi-line script
+      - name: Install dependencies
         run: |
-          echo Add other actions to build,
-          echo test, and deploy your project.
+          pip install buildozer==1.2.0 kivy==2.2.1 pillow==10.0.1
+
+      - name: Initialize Buildozer
+        run: buildozer init  # 创建 buildozer.spec 配置文件
+
+      - name: Build APK
+        run: buildozer -v android debug
+        env:
+          ANDROID_API: 30
+          ANDROID_NDK: 25c  # 指定 NDK 版本
+
+      - name: Verify APK exists
+        run: |
+          if [ -f "bin/*.apk" ]; then
+            echo "✅ APK found!"
+            ls -la bin/
+          else
+            echo "❌ ERROR: No APK found!"
+            exit 1
+          fi
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v3
+        continue-on-error: true
+        with:
+          name: apk
+          path: bin/*.apk
+
+      - name: Upload via GitHub CLI (备选方案)
+        if: success()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload --clobber "v$(date +%Y%m%d)" bin/*.apk || true

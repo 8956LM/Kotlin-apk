@@ -16,7 +16,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          cache: 'pip'  # 添加缓存加速依赖安装
+          # 移除 cache 参数，避免找不到依赖文件的错误
+          # cache: 'pip'  # 注释掉或删除此行
 
       - name: Verify Python Version
         run: |
@@ -46,7 +47,7 @@ jobs:
           cp bin/*.apk artifacts/
 
       - name: Upload APK
-        uses: actions/upload-artifact@v4  # 使用正确版本
+        uses: actions/upload-artifact@v4  # 修复：使用正确版本 v4
         with:
           name: kivy-apk
           path: artifacts/

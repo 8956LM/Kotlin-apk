@@ -1,0 +1,44 @@
+name: Build Android APK with Kivy (Python 3.10)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"  # 指定 Python 3.10
+
+      - name: Install Buildozer and Kivy
+        run: |
+          # 安装 Buildozer（建议固定版本确保兼容）
+          pip install buildozer==1.2.0
+          # 安装 Kivy（2.2.1+ 支持 Python 3.10）
+          pip install kivy==2.2.1
+          # 安装其他依赖（如 Pillow、requests 等）
+          pip install pillow==10.0.1
+
+      - name: Buildozer bootstrap (Android 环境初始化)
+        run: buildozer android.bootstrap --requirements=python3,kivy  # 明确依赖
+
+      - name: Build APK
+        run: buildozer android.build
+        env:
+          # 可选：配置 Android API 级别（需与 buildozer.spec 一致）
+          ANDROID_API: 30
+          # 签名密钥（通过 GitHub Secrets 安全存储）
+          # ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: apk
+          path: bin/*.apk

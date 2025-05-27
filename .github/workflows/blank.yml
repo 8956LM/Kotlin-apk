@@ -25,29 +25,26 @@ jobs:
       - name: Setup Android SDK with License Acceptance
         uses: android-actions/setup-android@v2
         with:
-          # 安装与 Buildozer 兼容的构建工具版本（如 30.0.3）
           packages: |
             build-tools;30.0.3
             platforms;android-30
             platform-tools
-          # 强制接受所有许可证
           license-accept: true
-          # 显式指定 SDK 版本（可选，确保稳定性）
           android-sdk-version: 30
 
       - name: Verify buildozer.spec exists and configure
         run: |
           if [ ! -f buildozer.spec ]; then
             buildozer init -v
-            # 修改默认配置（示例：设置包名、依赖等）
             sed -i 's/package.name = myapp/package.name = your_app_name/' buildozer.spec
             sed -i 's/requirements =.*/requirements = python3,kivy/' buildozer.spec
           fi
+          # 显示配置文件内容用于调试
+          cat buildozer.spec
 
       - name: Build APK
         run: |
-          # 清除旧构建缓存（避免版本冲突）
-          buildozer clean
+          # 移除不兼容的 clean 命令
           buildozer -v android debug
           mkdir artifacts
           cp bin/*.apk artifacts/

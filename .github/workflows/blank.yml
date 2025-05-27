@@ -58,9 +58,7 @@ jobs:
           sed -i 's/# android.api = .*/android.api = 33/' buildozer.spec
           sed -i 's/# android.sdk = .*/android.sdk = 33/' buildozer.spec
           sed -i 's/# requirements = .*/requirements = python3,kivy,pillow,cython/' buildozer.spec
-          # 强制指定 NDK 路径
           sed -i 's/# android.ndk_path = .*/android.ndk_path = \/home\/runner\/.buildozer\/android\/platform\/android-ndk-r26b/' buildozer.spec
-          # 禁用 NDK 自动检测
           sed -i 's/# android.accept_sdk_license = .*/android.accept_sdk_license = True/' buildozer.spec
           cat buildozer.spec
 
@@ -109,12 +107,30 @@ jobs:
           # 克隆 Python for Android 仓库
           git clone https://github.com/kivy/python-for-android.git ~/.buildozer/android/platform/python-for-android
           
-          # 编辑版本检测文件，强制使用 r26b
-          sed -i 's/DEFAULT_NDK_VERSION = "25b"/DEFAULT_NDK_VERSION = "26b"/' \
-            ~/.buildozer/android/platform/python-for-android/pythonforandroid/recipes/ndk/download.py
+          # 查找 NDK 版本定义文件
+          echo "Searching for NDK version definition..."
+          find ~/.buildozer/android/platform/python-for-android -name "download.py" -o -name "ndk.py" -o -name "versions.py"
+          
+          # 尝试多个可能的文件路径
+          if [ -f ~/.buildozer/android/platform/python-for-android/pythonforandroid/recipes/ndk/versions.py ]; then
+            sed -i 's/DEFAULT_NDK_VERSION = "25b"/DEFAULT_NDK_VERSION = "26b"/' \
+              ~/.buildozer/android/platform/python-for-android/pythonforandroid/recipes/ndk/versions.py
+            echo "✅ Patched versions.py"
+          elif [ -f ~/.buildozer/android/platform/python-for-android/pythonforandroid/toolchain.py ]; then
+            sed -i 's/DEFAULT_NDK_VERSION = "25b"/DEFAULT_NDK_VERSION = "26b"/' \
+              ~/.buildozer/android/platform/python-for-android/pythonforandroid/toolchain.py
+            echo "✅ Patched toolchain.py"
+          elif [ -f ~/.buildozer/android/platform/python-for-android/pythonforandroid/recipes/ndk/ndk.py ]; then
+            sed -i 's/DEFAULT_NDK_VERSION = "25b"/DEFAULT_NDK_VERSION = "26b"/' \
+              ~/.buildozer/android/platform/python-for-android/pythonforandroid/recipes/ndk/ndk.py
+            echo "✅ Patched ndk.py"
+          else
+            echo "❌ ERROR: Could not find NDK version definition file"
+            exit 1
+          fi
           
           # 验证修改
-          grep "DEFAULT_NDK_VERSION" ~/.buildozer/android/platform/python-for-android/pythonforandroid/recipes/ndk/download.py
+          grep -r "DEFAULT_NDK_VERSION" ~/.buildozer/android/platform/python-for-android
 
       - name: Build APK
         run: |

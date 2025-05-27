@@ -1,37 +1,102 @@
-name: Build Kivy APK with Docker
+name: Build Android APK with Kivy (Python 3.10)
 
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-  build:
+  build-apk:
     runs-on: ubuntu-latest
-    container:
-      image: kivy/buildozer:latest  # 官方预配置的 Buildozer Docker 镜像
-      options: --privileged  # 授予必要权限
-
+    timeout-minutes: 30
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Generate buildozer.spec (if missing)
+      - name: Clean disk space
         run: |
-          if [ ! -f buildozer.spec ]; then
-            buildozer init -v
-            sed -i 's/package.name = myapp/package.name = your_app_name/' buildozer.spec
-            sed -i 's/requirements =.*/requirements = python3,kivy/' buildozer.spec
-          fi
-          cat buildozer.spec
+          sudo apt-get clean
+          sudo rm -rf /usr/share/dotnet /opt/ghc
+          df -h
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            git build-essential python3-dev libffi-dev libssl-dev \
+            libltdl-dev autoconf automake libtool unzip openjdk-11-jdk
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install buildozer==1.2.0 kivy==2.2.1 Cython==0.29.32
+
+      - name: Configure buildozer.spec
+        run: |
+          buildozer init || true
+          cat > buildozer.spec <<EOL
+[app]
+title = MyApp
+package.name = myapp
+package.domain = org.test
+source.dir = .
+source.include_exts = py,png,jpg,kv,atlas
+version = 0.1
+requirements = python3,kivy
+orientation = portrait
+osx.python_version = 3
+osx.kivy_version = 2.2.1
+fullscreen = 0
+android.api = 33
+android.minapi = 21
+android.sdk = 33
+android.ndk = 26b
+android.ndk_path = /home/runner/.buildozer/android/platform/android-ndk-r26b
+android.accept_sdk_license = True
+android.p4a_dir = /home/runner/.buildozer/android/platform/python-for-android
+EOL
+
+      - name: Setup Android SDK/NDK
+        run: |
+          mkdir -p ~/.buildozer/android/platform
+          cd ~/.buildozer/android/platform
+          
+          # Download and setup Android SDK
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
+          unzip -q commandlinetools-linux-9477386_latest.zip -d cmdline-tools
+          mv cmdline-tools/cmdline-tools cmdline-tools/latest || mv cmdline-tools/tools cmdline-tools/latest
+          
+          # Download and setup NDK
+          wget -q https://dl.google.com/android/repository/android-ndk-r26b-linux.zip
+          unzip -q android-ndk-r26b-linux.zip
+          
+          echo "ANDROID_HOME=$HOME/.buildozer/android/platform" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$HOME/.buildozer/android/platform/android-ndk-r26b" >> $GITHUB_ENV
+          echo "PATH=$HOME/.buildozer/android/platform/cmdline-tools/latest/bin:$PATH" >> $GITHUB_ENV
+
+      - name: Install Android components
+        run: |
+          yes | sdkmanager --licenses
+          sdkmanager "platforms;android-33" "build-tools;33.0.2" "platform-tools"
 
       - name: Build APK
         run: |
           buildozer -v android debug
-          mkdir -p artifacts
-          cp bin/*.apk artifacts/
+          ls -la bin/
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+          JAVA_HOME: /usr/lib/jvm/java-11-openjdk-amd64
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
+        if: success()
         with:
-          name: kivy-apk
-          path: artifacts/
+          name: app-apk
+          path: bin/*.apk

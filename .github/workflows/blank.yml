@@ -61,6 +61,9 @@ jobs:
           sed -i 's/# android.ndk_path = .*/android.ndk_path = \/home\/runner\/.buildozer\/android\/platform\/android-ndk-r26b/' buildozer.spec
           sed -i 's/# android.accept_sdk_license = .*/android.accept_sdk_license = True/' buildozer.spec
           sed -i 's/# android.p4a_dir = .*/android.p4a_dir = \/home\/runner\/.buildozer\/android\/platform\/python-for-android/' buildozer.spec
+          # 添加一些额外配置以确保兼容性
+          sed -i 's/# android.arch = .*/android.arch = armeabi-v7a,arm64-v8a,x86_64/' buildozer.spec
+          sed -i 's/# android.api_min = .*/android.api_min = 21/' buildozer.spec
           cat buildozer.spec
 
       - name: Download Android SDK and NDK
@@ -107,6 +110,10 @@ jobs:
         run: |
           # 克隆 Python for Android 仓库
           git clone https://github.com/kivy/python-for-android.git ~/.buildozer/android/platform/python-for-android
+          
+          # 可选：切换到特定版本以确保兼容性
+          cd ~/.buildozer/android/platform/python-for-android
+          git checkout master  # 或指定特定版本的标签
           
           # 查找 NDK 版本定义文件
           echo "Searching for NDK version definition..."
@@ -160,11 +167,17 @@ jobs:
           buildozer -v android debug --ndk_dir=$ANDROID_NDK_HOME --ndk_version=26b | tee build.log
           
           # 检查构建是否成功
-          if [ ! -f "bin/*.apk" ]; then
+          APK_PATH=$(find bin -name "*.apk" | head -1)
+          if [ -z "$APK_PATH" ]; then
             echo "❌ ERROR: No APK found after build"
             echo "=== Last 200 lines of build log ==="
             tail -n 200 build.log
             exit 1
+          else
+            echo "✅ APK found: $APK_PATH"
+            # 复制 APK 到预期位置
+            mkdir -p artifacts
+            cp $APK_PATH artifacts/app-debug.apk
           fi
         env:
           ANDROID_API: 33
@@ -175,19 +188,33 @@ jobs:
 
       - name: Verify APK exists
         run: |
-          if [ -f "bin/*.apk" ]; then
-            echo "✅ APK found!"
-            ls -la bin/
+          if [ -f "artifacts/app-debug.apk" ]; then
+            echo "✅ APK found in artifacts directory!"
+            ls -la artifacts/
           else
-            echo "❌ ERROR: No APK found!"
+            echo "❌ ERROR: No APK found in artifacts directory!"
             exit 1
           fi
 
-      - name: Archive APK
+      - name: Archive APK and Log
         run: |
+          # 确保 artifacts 目录存在
           mkdir -p artifacts
-          cp bin/*.apk artifacts/ || echo "No APK found"
-          cp build.log artifacts/ || echo "No build log found"
+          
+          # 复制 APK 到 artifacts 目录
+          if [ -f "bin/*.apk" ]; then
+            cp bin/*.apk artifacts/
+          else
+            echo "No APK found in bin directory"
+          fi
+          
+          # 复制构建日志
+          if [ -f "build.log" ]; then
+            cp build.log artifacts/
+          else
+            echo "No build log found"
+          fi
+          
           echo "=== APK build completed ==="
           echo "APK path: $(find artifacts -name '*.apk')"
           echo "Build log path: $(find artifacts -name 'build.log')"
@@ -232,8 +259,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: https://uploads.github.com/repos/${{ github.repository }}/releases/${{ env.RELEASE_ID }}/assets{?name,label}
-          asset_path: artifacts/${{ env.TAG_NAME }}.apk
-          asset_name: ${{ env.TAG_NAME }}.apk
+          asset_path: artifacts/app-debug.apk
+          asset_name: ${{ env.TAG_NAME }}-debug.apk
           asset_content_type: application/vnd.android.package-archive
 
       - name: Upload Build Log

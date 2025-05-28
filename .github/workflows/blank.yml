@@ -31,7 +31,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install buildozer cython
 
-      - name: Setup Android SDK with License Acceptance
+      - name: Setup Android SDK
         uses: android-actions/setup-android@v2
         with:
           packages: |
@@ -53,44 +53,49 @@ jobs:
           echo "Creating default buildozer.spec dynamically"
           
           # 创建基本的 buildozer.spec 内容
-          cat > buildozer.spec << EOF
-          - name: Generate buildozer.spec dynamically
-          - name: Generate buildozer.spec dynamically
-            run: |
-              echo "Creating default buildozer.spec dynamically"
-              # 创建基本的 buildozer.spec 内容
-              cat > buildozer.spec << 'EOF'
-              [app]
-              title = Your App Title
-              package.name = your_app_name
-              package.domain = com.yourdomain
-              version = 1.0.0
-              source.dir = .
-              source.include_exts = py,png,jpg,kv,atlas,ttf
-              requirements = python3,kivy,pillow
-              android.permissions = INTERNET,READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE,CAMERA
-              android.api = 33
-              android.minapi = 23
-              android.sdk = 33
-              android.ndk = 25c
-              android.arch = armeabi-v7a
-              orientation = portrait
-              fullscreen = 0
+          cat > buildozer.spec << 'EOF'
+            [app]
+            title = Your App Title
+            package.name = your_app_name
+            package.domain = com.yourdomain
+            version = 1.0.0
+            source.dir = .
+            source.include_exts = py,png,jpg,kv,atlas,ttf
+            requirements = python3,kivy,pillow
+            android.permissions = INTERNET,READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE,CAMERA
+            android.api = 33
+            android.minapi = 23
+            android.sdk = 33
+            android.ndk = 25c
+            android.arch = armeabi-v7a
+            orientation = portrait
+            fullscreen = 0
           EOF
+          
           # 打印配置用于调试
           cat buildozer.spec
 
-
-
-      - name: Manually Accept SDK Licenses
+      - name: Accept Android SDK Licenses
         run: |
-          # 创建许可证目录并写入接受文件
-          mkdir -p $ANDROID_HOME/licenses
-          echo -e "\n8933bad161af4178b1185d1a37fbf41ea5269c8" > $ANDROID_HOME/licenses/android-sdk-license
-          echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd" > $ANDROID_HOME/licenses/android-sdk-preview-license
-          echo -e "\nd56f5187479451eabf01fb78af6dfcb131a6481e" > $ANDROID_HOME/licenses/intel-android-extra-license
+          # 确认 ANDROID_HOME 环境变量
+          echo "ANDROID_HOME: $ANDROID_HOME"
+          
+          # 创建许可证目录
+          mkdir -p "$ANDROID_HOME/licenses"
+          
+          # 写入许可证文件
+          echo -e "\n8933bad161af4178b1185d1a37fbf41ea5269c8" > "$ANDROID_HOME/licenses/android-sdk-license"
+          echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
+          echo -e "\nd56f5187479451eabf01fb78af6dfcb131a6481e" > "$ANDROID_HOME/licenses/intel-android-extra-license"
+          
           # 验证许可证文件存在
-          ls -la $ANDROID_HOME/licenses
+          ls -la "$ANDROID_HOME/licenses"
+          
+          # 使用 sdkmanager 命令验证并接受许可证
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+          
+          # 列出所有可用的 SDK 包
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --list
 
       - name: Install Required Build Tools
         run: |
@@ -99,13 +104,13 @@ jobs:
           echo "PATH: $PATH"
           
           # 安装指定版本的 build-tools
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;30.0.3"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;30.0.3"
           
           # 验证 build-tools 已安装
-          ls -la $ANDROID_HOME/build-tools/30.0.3
+          ls -la "$ANDROID_HOME/build-tools/30.0.3"
           
           # 验证 aidl 工具存在
-          $ANDROID_HOME/build-tools/30.0.3/aidl --version
+          "$ANDROID_HOME/build-tools/30.0.3/aidl" --version
 
       - name: Build APK
         run: |

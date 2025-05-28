@@ -90,6 +90,13 @@ jobs:
             ndk;25.2.9519653
           accept-licenses: true
 
+      - name: Install JAXB dependencies for Java 11+
+        run: |
+          echo "::group::Installing JAXB dependencies"
+          sudo apt-get update -y
+          sudo apt-get install -y libxml2-dev libxslt1-dev
+          echo "::endgroup::"
+
       - name: Force accept all Android SDK licenses
         run: |
           echo "::group::Force accepting all Android SDK licenses"
@@ -275,30 +282,22 @@ jobs:
             ls -la $ANDROID_HOME/build-tools/30.0.3
           else
             echo "::error::Build tools 30.0.3 not found"
-            echo "Available build tools:"
-            ls -la $ANDROID_HOME/build-tools || echo "No build tools directory found"
             exit 1
           fi
           
           echo "AIDL Tool Path:"
           if [ -f "$ANDROID_HOME/build-tools/30.0.3/aidl" ]; then
             echo "AIDL tool found!"
-            $ANDROID_HOME/build-tools/30.0.3/aidl --version || echo "AIDL version check failed"
           else
             echo "::error::AIDL tool not found in build tools 30.0.3"
-            echo "Contents of build-tools/30.0.3:"
-            ls -la $ANDROID_HOME/build-tools/30.0.3 || echo "Directory does not exist"
             exit 1
           fi
           
           echo "sdkmanager Path:"
           if [ -f "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
             echo "sdkmanager found!"
-            $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --version
           else
             echo "::error::sdkmanager not found"
-            echo "Available cmdline-tools:"
-            ls -la $ANDROID_HOME/cmdline-tools || echo "No cmdline-tools directory found"
             exit 1
           fi
           echo "::endgroup::"
@@ -378,8 +377,43 @@ jobs:
           mkdir -p /home/runner/.buildozer/android/platform
           touch /home/runner/.buildozer/android/platform/accept-licenses
           
+          # 设置Java模块路径（解决JAXB缺失问题）
+          export JAVA_MODULE_PATH="$(dirname $(dirname $(which java)))/lib/jmods"
+          export JAVA_OPTS="--add-modules=java.xml.bind"
+          
+          # 检查Java版本和环境
+          echo "=== JAVA ENVIRONMENT CHECK ==="
+          echo "Java version:"
+          java -version
+          echo "Java home:"
+          echo $JAVA_HOME
+          echo "Java module path:"
+          echo $JAVA_MODULE_PATH
+          echo "Java options:"
+          echo $JAVA_OPTS
+          
+          # 测试sdkmanager是否能正常运行
+          echo "=== TESTING SDKMANAGER ==="
+          echo "Testing sdkmanager with --version:"
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --version
+          
+          echo "Testing sdkmanager with --list:"
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list || {
+            echo "::error::sdkmanager --list failed. Continuing with build..."
+          }
+          
+          # 打印更多环境信息
+          echo "=== ENVIRONMENT VARIABLES ==="
+          env | grep -i java
+          env | grep -i android
+          
           buildozer android debug --print_config_only
           
+          # 保存buildozer配置到日志文件
+          buildozer android debug --print_config_only > bin/buildozer_config.log
+          
+          # 运行实际的APK构建
+          echo "=== STARTING ACTUAL APK BUILD ==="
           buildozer -v android debug || { 
             echo "::error::APK build failed"
             cat bin/buildozer.log

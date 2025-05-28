@@ -54,26 +54,33 @@ jobs:
           
           # 创建基本的 buildozer.spec 内容
           cat > buildozer.spec << EOF
-[app]
-title = Your App Title
-package.name = your_app_name
-package.domain = com.yourdomain
-version = 1.0.0
-source.dir = .
-source.include_exts = py,png,jpg,kv,atlas,ttf
-requirements = python3,kivy,pillow
-android.permissions = INTERNET,READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE,CAMERA
-android.api = 33
-android.minapi = 23
-android.sdk = 33
-android.ndk = 25c
-android.arch = armeabi-v7a
-orientation = portrait
-fullscreen = 0
-EOF
-          
+          - name: Generate buildozer.spec dynamically
+          - name: Generate buildozer.spec dynamically
+            run: |
+              echo "Creating default buildozer.spec dynamically"
+              # 创建基本的 buildozer.spec 内容
+              cat > buildozer.spec << 'EOF'
+              [app]
+              title = Your App Title
+              package.name = your_app_name
+              package.domain = com.yourdomain
+              version = 1.0.0
+              source.dir = .
+              source.include_exts = py,png,jpg,kv,atlas,ttf
+              requirements = python3,kivy,pillow
+              android.permissions = INTERNET,READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE,CAMERA
+              android.api = 33
+              android.minapi = 23
+              android.sdk = 33
+              android.ndk = 25c
+              android.arch = armeabi-v7a
+              orientation = portrait
+              fullscreen = 0
+          EOF
           # 打印配置用于调试
           cat buildozer.spec
+
+
 
       - name: Manually Accept SDK Licenses
         run: |

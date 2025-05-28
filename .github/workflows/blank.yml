@@ -42,11 +42,11 @@ jobs:
               echo "::warning::requirements.txt not found in repository root"
               echo "Creating minimal requirements.txt for buildozer"
               cat > requirements.txt << EOF
-          buildozer
-          cython
-          kivy
-          pillow
-          EOF
+buildozer
+cython
+kivy
+pillow
+EOF
               echo "Created minimal requirements.txt"
             fi
             
@@ -101,11 +101,37 @@ jobs:
           mkdir -p ~/jaxb
           cd ~/jaxb
           
-          # 下载JAXB核心依赖
-          wget -q https://repo1.maven.org/maven2/javax/xml/bind/jaxb-api/${JAXB_VERSION}/jaxb-api-${JAXB_VERSION}.jar
-          wget -q https://repo1.maven.org/maven2/com/sun/xml/bind/jaxb-core/${JAXB_VERSION}/jaxb-core-${JAXB_VERSION}.jar
-          wget -q https://repo1.maven.org/maven2/com/sun/xml/bind/jaxb-impl/${JAXB_VERSION}/jaxb-impl-${JAXB_VERSION}.jar
-          wget -q https://repo1.maven.org/maven2/javax/activation/javax.activation-api/1.2.0/javax.activation-api-1.2.0.jar
+          # 下载JAXB核心依赖（增加重试机制）
+          MAX_RETRIES=3
+          
+          download_with_retry() {
+            local url=$1
+            local file=$2
+            local attempts=0
+            
+            while [ $attempts -lt $MAX_RETRIES ]; do
+              echo "Downloading $file (attempt $((attempts+1))/$MAX_RETRIES)..."
+              wget -q $url -O $file
+              
+              if [ $? -eq 0 ] && [ -s $file ]; then
+                echo "Successfully downloaded $file"
+                return 0
+              fi
+              
+              attempts=$((attempts+1))
+              echo "Download failed. Retrying in 5 seconds..."
+              sleep 5
+            done
+            
+            echo "::error::Failed to download $file after $MAX_RETRIES attempts"
+            return 1
+          }
+          
+          # 下载各个JAXB依赖
+          download_with_retry "https://repo1.maven.org/maven2/javax/xml/bind/jaxb-api/${JAXB_VERSION}/jaxb-api-${JAXB_VERSION}.jar" "jaxb-api.jar" || exit 1
+          download_with_retry "https://repo1.maven.org/maven2/com/sun/xml/bind/jaxb-core/${JAXB_VERSION}/jaxb-core-${JAXB_VERSION}.jar" "jaxb-core.jar" || exit 1
+          download_with_retry "https://repo1.maven.org/maven2/com/sun/xml/bind/jaxb-impl/${JAXB_VERSION}/jaxb-impl-${JAXB_VERSION}.jar" "jaxb-impl.jar" || exit 1
+          download_with_retry "https://repo1.maven.org/maven2/javax/activation/javax.activation-api/1.2.0/javax.activation-api-1.2.0.jar" "javax.activation-api.jar" || exit 1
           
           # 创建JAXB类路径
           export JAXB_CLASSPATH=$(find ~/jaxb -name "*.jar" -print0 | tr '\0' ':')

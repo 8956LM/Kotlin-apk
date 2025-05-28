@@ -34,6 +34,9 @@ jobs:
             cd ./repo
             echo "Contents of repository:"
             ls -la
+            
+
+
 
           if [ -f "requirements.txt" ]; then
             echo "requirements.txt found"
@@ -49,8 +52,10 @@ jobs:
           EOF
             echo "Created minimal requirements.txt"
           fi
+
+
+
             
-        
             if [ -f "buildozer.spec" ]; then
               echo "buildozer.spec found"
             else
@@ -224,11 +229,11 @@ jobs:
             echo "Creating sample AIDL file for testing"
             mkdir -p src/main/aidl/com/example
             cat > "$AIDL_FILE_PATH" << 'EOF'
-              package com.example;
-              interface MyService {
-                void basicTypes(int anInt, long aLong, boolean aBoolean);
-              }
-            EOF
+package com.example;
+interface MyService {
+  void basicTypes(int anInt, long aLong, boolean aBoolean);
+}
+EOF
             echo "Sample AIDL file created"
           fi
           echo "::endgroup::"

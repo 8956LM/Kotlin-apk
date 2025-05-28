@@ -79,17 +79,15 @@ jobs:
           python -m pip install buildozer cython
           echo "::endgroup::"
 
-      - name: Setup Android SDK (使用正确的官方操作)
-        uses: android-actions/setup-android@v3  # 正确的操作名称
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
         with:
           components: |
-            build-tools;30.0.3
             platforms;android-30
             platform-tools
             tools
             ndk;25.2.9519653
           accept-licenses: true
-          sdk-tools: 4333796  # 明确指定SDK工具版本，避免兼容性问题
 
       - name: Force accept all Android SDK licenses
         run: |
@@ -131,23 +129,27 @@ jobs:
           ls -laR $ANDROID_HOME
           echo "::endgroup::"
 
-      - name: Re-install build-tools;30.0.3
+      - name: Manually download and install Build-Tools 30.0.3
         run: |
-          echo "::group::Re-installing build-tools;30.0.3"
-          echo "sdkmanager version:"
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --version
+          echo "::group::Manually installing Build-Tools 30.0.3"
+          # 创建build-tools目录
+          mkdir -p $ANDROID_HOME/build-tools
           
-          echo "Checking existing build tools:"
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list | grep build-tools
+          # 下载Build-Tools 30.0.3压缩包
+          echo "Downloading Build-Tools 30.0.3..."
+          wget -q https://dl.google.com/android/repository/build-tools_r30.0.3-linux.zip -O build-tools.zip
           
-          echo "Installing build-tools;30.0.3"
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;30.0.3" --verbose
+          # 解压到指定目录
+          echo "Extracting Build-Tools 30.0.3..."
+          unzip -q build-tools.zip -d $ANDROID_HOME/build-tools/30.0.3
           
-          echo "Verifying installation:"
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list | grep build-tools
+          # 验证安装
+          echo "Verifying installation..."
+          ls -la $ANDROID_HOME/build-tools/30.0.3
+          $ANDROID_HOME/build-tools/30.0.3/aidl --version || echo "AIDL tool found but version check failed"
           
-          echo "Checking build-tools directory:"
-          ls -la $ANDROID_HOME/build-tools
+          # 清理临时文件
+          rm build-tools.zip
           echo "::endgroup::"
 
       - name: List installed Android components

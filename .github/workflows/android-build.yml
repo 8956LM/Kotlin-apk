@@ -26,8 +26,19 @@ jobs:
       - name: Build with Gradle
         run: ./gradlew assembleDebug  # 构建 Debug APK
         
-      - name: Upload APK
-        uses: actions/upload-artifact@v2  # 使用 v2 版本上传构建好的 APK 作为工作流产物
+      - name: Upload APK as artifact
+        run: |
+          # 创建 artifacts 目录用于存储要上传的文件
+          mkdir -p artifacts
+          # 复制 APK 文件到 artifacts 目录
+          cp app/build/outputs/apk/debug/*.apk artifacts/
+          # 使用 GitHub CLI 上传文件
+          echo "::set-output name=artifact_path::$(realpath artifacts/*.apk)"
+          echo "::set-output name=artifact_name::app-debug.apk"
+        id: artifact
+
+      - name: Archive APK
+        uses: actions/upload-artifact@v3
         with:
-          name: app-debug
-          path: app/build/outputs/apk/debug/*.apk
+          name: ${{ steps.artifact.outputs.artifact_name }}
+          path: ${{ steps.artifact.outputs.artifact_path }}

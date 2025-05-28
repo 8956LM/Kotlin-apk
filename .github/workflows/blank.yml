@@ -95,6 +95,25 @@ jobs:
           echo "::group::Installing JAXB dependencies"
           sudo apt-get update -y
           sudo apt-get install -y libxml2-dev libxslt1-dev
+          
+          # 下载并安装JAXB运行时依赖
+          JAXB_VERSION="2.3.8"
+          mkdir -p ~/jaxb
+          cd ~/jaxb
+          
+          # 下载JAXB核心依赖
+          wget -q https://repo1.maven.org/maven2/javax/xml/bind/jaxb-api/${JAXB_VERSION}/jaxb-api-${JAXB_VERSION}.jar
+          wget -q https://repo1.maven.org/maven2/com/sun/xml/bind/jaxb-core/${JAXB_VERSION}/jaxb-core-${JAXB_VERSION}.jar
+          wget -q https://repo1.maven.org/maven2/com/sun/xml/bind/jaxb-impl/${JAXB_VERSION}/jaxb-impl-${JAXB_VERSION}.jar
+          wget -q https://repo1.maven.org/maven2/javax/activation/javax.activation-api/1.2.0/javax.activation-api-1.2.0.jar
+          
+          # 创建JAXB类路径
+          export JAXB_CLASSPATH=$(find ~/jaxb -name "*.jar" -print0 | tr '\0' ':')
+          echo "JAXB_CLASSPATH=$JAXB_CLASSPATH" >> $GITHUB_ENV
+          
+          # 验证JAXB安装
+          echo "JAXB dependencies installed:"
+          ls -la ~/jaxb
           echo "::endgroup::"
 
       - name: Force accept all Android SDK licenses
@@ -377,9 +396,12 @@ jobs:
           mkdir -p /home/runner/.buildozer/android/platform
           touch /home/runner/.buildozer/android/platform/accept-licenses
           
-          # 设置Java模块路径（解决JAXB缺失问题）
+          # 设置Java模块路径和选项
           export JAVA_MODULE_PATH="$(dirname $(dirname $(which java)))/lib/jmods"
-          export JAVA_OPTS="--add-modules=java.xml.bind"
+          export JAXB_CLASSPATH=$(find ~/jaxb -name "*.jar" -print0 | tr '\0' ':')
+          
+          # 更新JAVA_OPTS以包含JAXB类路径
+          export JAVA_OPTS="--add-modules=java.xml.bind --class-path=$JAXB_CLASSPATH"
           
           # 检查Java版本和环境
           echo "=== JAVA ENVIRONMENT CHECK ==="
@@ -389,8 +411,20 @@ jobs:
           echo $JAVA_HOME
           echo "Java module path:"
           echo $JAVA_MODULE_PATH
+          echo "JAXB classpath:"
+          echo $JAXB_CLASSPATH
           echo "Java options:"
           echo $JAVA_OPTS
+          
+          # 验证JAXB依赖是否存在
+          echo "=== JAXB DEPENDENCIES CHECK ==="
+          if [ -d ~/jaxb ]; then
+            echo "JAXB dependencies directory exists:"
+            ls -la ~/jaxb
+          else
+            echo "::error::JAXB dependencies directory not found"
+            exit 1
+          fi
           
           # 测试sdkmanager是否能正常运行
           echo "=== TESTING SDKMANAGER ==="
@@ -398,8 +432,18 @@ jobs:
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --version
           
           echo "Testing sdkmanager with --list:"
+          # 先尝试使用修改后的JAVA_OPTS运行sdkmanager
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list || {
-            echo "::error::sdkmanager --list failed. Continuing with build..."
+            echo "::error::sdkmanager --list failed with modified JAVA_OPTS. Trying fallback..."
+            
+            # 如果失败，尝试使用更完整的JAXB类路径
+            JAXB_FALLBACK_PATH="/usr/share/java/jaxb-api.jar:/usr/share/java/jaxb-impl.jar:/usr/share/java/jaxb-core.jar:/usr/share/java/javax.activation.jar"
+            JAVA_OPTS_FALLBACK="--add-modules=java.xml.bind --class-path=$JAXB_FALLBACK_PATH"
+            
+            echo "Trying with fallback JAVA_OPTS: $JAVA_OPTS_FALLBACK"
+            JAVA_OPTS=$JAVA_OPTS_FALLBACK $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list || {
+              echo "::error::sdkmanager --list failed even with fallback. Continuing with build..."
+            }
           }
           
           # 打印更多环境信息

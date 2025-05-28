@@ -123,11 +123,12 @@ jobs:
             while [ $attempts -lt $MAX_RETRIES ]; do
               echo "Downloading $file_name (attempt $((attempts+1))/$MAX_RETRIES)..."
               
-              # 尝试使用wget下载
+              # 尝试使用wget下载，增加详细错误信息
               wget -q "$base_url/$artifact_path" -O "$file_name"
+              WGET_EXIT_CODE=$?
               
               # 检查下载是否成功
-              if [ $? -eq 0 ] && [ -s "$file_name" ]; then
+              if [ $WGET_EXIT_CODE -eq 0 ] && [ -s "$file_name" ]; then
                 # 验证文件完整性（简单检查）
                 if [[ "$file_name" == *.jar ]]; then
                   # 尝试列出JAR文件内容来验证
@@ -142,6 +143,21 @@ jobs:
                 else
                   echo "Successfully downloaded $file_name"
                   return 0
+                fi
+              else
+                echo "Detailed download error for $file_name:"
+                if [ $WGET_EXIT_CODE -eq 4 ]; then
+                  echo "Network failure (Wget error 4)"
+                elif [ $WGET_EXIT_CODE -eq 5 ]; then
+                  echo "SSL verification failure (Wget error 5)"
+                elif [ $WGET_EXIT_CODE -eq 6 ]; then
+                  echo "Authentication failure (Wget error 6)"
+                elif [ $WGET_EXIT_CODE -eq 7 ]; then
+                  echo "Protocol error (Wget error 7)"
+                elif [ $WGET_EXIT_CODE -eq 8 ]; then
+                  echo "Server returned error (Wget error 8)"
+                else
+                  echo "Unknown error (Wget error $WGET_EXIT_CODE)"
                 fi
               fi
               
@@ -208,6 +224,12 @@ jobs:
               "https://repo.huaweicloud.com/repository/maven/"
               "https://maven.sonatype.org/content/groups/public/"
               "https://maven.google.com"
+              "https://repo.eclipse.org/content/groups/releases/"
+              "https://repo.adobe.com/nexus/content/groups/public/"
+              "https://repo.opencast.org/repository/maven-public/"
+              "https://repo.spring.io/libs-release/"
+              "https://oss.sonatype.org/content/repositories/releases/"
+              "https://maven.pkg.jetbrains.space/public/p/compose/dev/"
             )
             
             for mirror in "${MIRROR_SITES[@]}"; do
@@ -239,6 +261,47 @@ jobs:
           # 检查并创建备份目录用于临时存储
           mkdir -p ~/jaxb_backup
           
+          # 检查并使用缓存的JAXB依赖
+          if [ -d ~/.cache/jaxb ]; then
+            echo "Found cached JAXB dependencies"
+            cp ~/.cache/jaxb/*.jar ./
+            echo "Using cached JAXB dependencies"
+            
+            # 验证缓存文件完整性
+            JAXB_FILES=(
+              "jaxb-api.jar"
+              "jaxb-core.jar"
+              "jaxb-impl.jar"
+              "javax.activation-api.jar"
+            )
+            
+            ALL_FILES_PRESENT=true
+            for file in "${JAXB_FILES[@]}"; do
+              if [ -f "$file" ]; then
+                echo "Verifying $file..."
+                jar -tf "$file" > /dev/null 2>&1
+                if [ $? -ne 0 ]; then
+                  echo "::warning::Cached file $file is corrupted. Will attempt to redownload."
+                  rm -f "$file"
+                  ALL_FILES_PRESENT=false
+                fi
+              else
+                echo "::warning::Cached file $file not found. Will attempt to download."
+                ALL_FILES_PRESENT=false
+              fi
+            done
+            
+            if [ "$ALL_FILES_PRESENT" = true ]; then
+              echo "All cached JAXB files are valid"
+              export JAXB_CLASSPATH=$(find ~/jaxb -name "*.jar" -print0 | tr '\0' ':')
+              echo "JAXB_CLASSPATH=$JAXB_CLASSPATH" >> $GITHUB_ENV
+              echo "::endgroup::"
+              return 0
+            else
+              echo "Some cached JAXB files are missing or corrupted. Proceeding with download."
+            fi
+          fi
+          
           # 下载各个JAXB依赖
           echo "=== DOWNLOADING JAXB DEPENDENCIES ==="
           
@@ -262,6 +325,14 @@ jobs:
                 "https://github.com/johnsonlee/jaxb-ri/raw/master/jaxb-api.jar"
                 "https://github.com/kotlin/kotlinx.serialization/raw/master/third-party/jaxb/jaxb-api.jar"
                 "https://github.com/kodein-Framework/Kodein-DB/raw/master/lib/jaxb/jaxb-api.jar"
+                "https://github.com/googleapis/google-api-java-client/raw/main/extras/jaxb/lib/jaxb-api.jar"
+                "https://github.com/fabric8io/kubernetes-client/raw/master/dependencies/jaxb/jaxb-api.jar"
+                "https://github.com/jenkinsci/jaxb-api-plugin/raw/master/WEB-INF/lib/jaxb-api.jar"
+                "https://github.com/apache/cxf/raw/main/tools/maven-plugins/jaxb-api.jar"
+                "https://github.com/keycloak/keycloak/raw/main/modules/quarkus/jaxb-api.jar"
+                "https://github.com/spring-projects/spring-boot/raw/main/spring-boot-project/spring-boot-tools/jaxb-api.jar"
+                "https://github.com/hibernate/hibernate-orm/raw/main/lib/jaxb-api.jar"
+                "https://github.com/neo4j/neo4j/raw/master/community/kernel/jaxb-api.jar"
               )
               
               for repo in "${GITHUB_REPOS[@]}"; do
@@ -269,18 +340,40 @@ jobs:
                 wget -q "$repo" -O "jaxb-api.jar"
                 
                 if [ $? -eq 0 ] && [ -s "jaxb-api.jar" ]; then
-                  echo "Successfully downloaded jaxb-api.jar from GitHub repository"
-                  break
+                  # 验证下载的JAR文件
+                  jar -tf "jaxb-api.jar" > /dev/null 2>&1
+                  if [ $? -eq 0 ]; then
+                    echo "Successfully downloaded and verified jaxb-api.jar from GitHub repository"
+                    break
+                  else
+                    echo "Downloaded file jaxb-api.jar is corrupted. Trying next repository..."
+                    rm -f "jaxb-api.jar"
+                  fi
+                else
+                  echo "Download from $repo failed. Trying next repository..."
+                  rm -f "jaxb-api.jar"
                 fi
-                
-                echo "Download from $repo failed. Trying next repository..."
-                rm -f "jaxb-api.jar"
               done
               
               # 检查是否从GitHub成功下载
               if [ ! -f "jaxb-api.jar" ]; then
                 echo "::error::All methods failed to download jaxb-api.jar"
-                exit 1
+                
+                # 作为最后的手段，尝试使用wget的备用参数
+                echo "Trying last resort method: direct download with wget fallback parameters"
+                wget -q --no-check-certificate --no-proxy --tries=5 --timeout=30 \
+                  "https://repo1.maven.org/maven2/javax/xml/bind/jaxb-api/${JAXB_VERSION}/jaxb-api-${JAXB_VERSION}.jar" \
+                  -O "jaxb-api.jar" || {
+                  echo "::error::Last resort method failed to download jaxb-api.jar"
+                  exit 1
+                }
+                
+                # 验证最后的下载结果
+                jar -tf "jaxb-api.jar" > /dev/null 2>&1
+                if [ $? -ne 0 ]; then
+                  echo "::error::Last resort downloaded file jaxb-api.jar is corrupted"
+                  exit 1
+                fi
               fi
             fi
           }
@@ -303,6 +396,14 @@ jobs:
                 "https://github.com/johnsonlee/jaxb-ri/raw/master/jaxb-core.jar"
                 "https://github.com/kotlin/kotlinx.serialization/raw/master/third-party/jaxb/jaxb-core.jar"
                 "https://github.com/kodein-Framework/Kodein-DB/raw/master/lib/jaxb/jaxb-core.jar"
+                "https://github.com/googleapis/google-api-java-client/raw/main/extras/jaxb/lib/jaxb-core.jar"
+                "https://github.com/fabric8io/kubernetes-client/raw/master/dependencies/jaxb/jaxb-core.jar"
+                "https://github.com/jenkinsci/jaxb-api-plugin/raw/master/WEB-INF/lib/jaxb-core.jar"
+                "https://github.com/apache/cxf/raw/main/tools/maven-plugins/jaxb-core.jar"
+                "https://github.com/keycloak/keycloak/raw/main/modules/quarkus/jaxb-core.jar"
+                "https://github.com/spring-projects/spring-boot/raw/main/spring-boot-project/spring-boot-tools/jaxb-core.jar"
+                "https://github.com/hibernate/hibernate-orm/raw/main/lib/jaxb-core.jar"
+                "https://github.com/neo4j/neo4j/raw/master/community/kernel/jaxb-core.jar"
               )
               
               for repo in "${GITHUB_REPOS[@]}"; do
@@ -310,18 +411,40 @@ jobs:
                 wget -q "$repo" -O "jaxb-core.jar"
                 
                 if [ $? -eq 0 ] && [ -s "jaxb-core.jar" ]; then
-                  echo "Successfully downloaded jaxb-core.jar from GitHub repository"
-                  break
+                  # 验证下载的JAR文件
+                  jar -tf "jaxb-core.jar" > /dev/null 2>&1
+                  if [ $? -eq 0 ]; then
+                    echo "Successfully downloaded and verified jaxb-core.jar from GitHub repository"
+                    break
+                  else
+                    echo "Downloaded file jaxb-core.jar is corrupted. Trying next repository..."
+                    rm -f "jaxb-core.jar"
+                  fi
+                else
+                  echo "Download from $repo failed. Trying next repository..."
+                  rm -f "jaxb-core.jar"
                 fi
-                
-                echo "Download from $repo failed. Trying next repository..."
-                rm -f "jaxb-core.jar"
               done
               
               # 检查是否从GitHub成功下载
               if [ ! -f "jaxb-core.jar" ]; then
                 echo "::error::All methods failed to download jaxb-core.jar"
-                exit 1
+                
+                # 作为最后的手段，尝试使用wget的备用参数
+                echo "Trying last resort method: direct download with wget fallback parameters"
+                wget -q --no-check-certificate --no-proxy --tries=5 --timeout=30 \
+                  "https://repo1.maven.org/maven2/com/sun/xml/bind/jaxb-core/${JAXB_VERSION}/jaxb-core-${JAXB_VERSION}.jar" \
+                  -O "jaxb-core.jar" || {
+                  echo "::error::Last resort method failed to download jaxb-core.jar"
+                  exit 1
+                }
+                
+                # 验证最后的下载结果
+                jar -tf "jaxb-core.jar" > /dev/null 2>&1
+                if [ $? -ne 0 ]; then
+                  echo "::error::Last resort downloaded file jaxb-core.jar is corrupted"
+                  exit 1
+                fi
               fi
             fi
           }
@@ -344,6 +467,14 @@ jobs:
                 "https://github.com/johnsonlee/jaxb-ri/raw/master/jaxb-impl.jar"
                 "https://github.com/kotlin/kotlinx.serialization/raw/master/third-party/jaxb/jaxb-impl.jar"
                 "https://github.com/kodein-Framework/Kodein-DB/raw/master/lib/jaxb/jaxb-impl.jar"
+                "https://github.com/googleapis/google-api-java-client/raw/main/extras/jaxb/lib/jaxb-impl.jar"
+                "https://github.com/fabric8io/kubernetes-client/raw/master/dependencies/jaxb/jaxb-impl.jar"
+                "https://github.com/jenkinsci/jaxb-api-plugin/raw/master/WEB-INF/lib/jaxb-impl.jar"
+                "https://github.com/apache/cxf/raw/main/tools/maven-plugins/jaxb-impl.jar"
+                "https://github.com/keycloak/keycloak/raw/main/modules/quarkus/jaxb-impl.jar"
+                "https://github.com/spring-projects/spring-boot/raw/main/spring-boot-project/spring-boot-tools/jaxb-impl.jar"
+                "https://github.com/hibernate/hibernate-orm/raw/main/lib/jaxb-impl.jar"
+                "https://github.com/neo4j/neo4j/raw/master/community/kernel/jaxb-impl.jar"
               )
               
               for repo in "${GITHUB_REPOS[@]}"; do
@@ -351,18 +482,40 @@ jobs:
                 wget -q "$repo" -O "jaxb-impl.jar"
                 
                 if [ $? -eq 0 ] && [ -s "jaxb-impl.jar" ]; then
-                  echo "Successfully downloaded jaxb-impl.jar from GitHub repository"
-                  break
+                  # 验证下载的JAR文件
+                  jar -tf "jaxb-impl.jar" > /dev/null 2>&1
+                  if [ $? -eq 0 ]; then
+                    echo "Successfully downloaded and verified jaxb-impl.jar from GitHub repository"
+                    break
+                  else
+                    echo "Downloaded file jaxb-impl.jar is corrupted. Trying next repository..."
+                    rm -f "jaxb-impl.jar"
+                  fi
+                else
+                  echo "Download from $repo failed. Trying next repository..."
+                  rm -f "jaxb-impl.jar"
                 fi
-                
-                echo "Download from $repo failed. Trying next repository..."
-                rm -f "jaxb-impl.jar"
               done
               
               # 检查是否从GitHub成功下载
               if [ ! -f "jaxb-impl.jar" ]; then
                 echo "::error::All methods failed to download jaxb-impl.jar"
-                exit 1
+                
+                # 作为最后的手段，尝试使用wget的备用参数
+                echo "Trying last resort method: direct download with wget fallback parameters"
+                wget -q --no-check-certificate --no-proxy --tries=5 --timeout=30 \
+                  "https://repo1.maven.org/maven2/com/sun/xml/bind/jaxb-impl/${JAXB_VERSION}/jaxb-impl-${JAXB_VERSION}.jar" \
+                  -O "jaxb-impl.jar" || {
+                  echo "::error::Last resort method failed to download jaxb-impl.jar"
+                  exit 1
+                }
+                
+                # 验证最后的下载结果
+                jar -tf "jaxb-impl.jar" > /dev/null 2>&1
+                if [ $? -ne 0 ]; then
+                  echo "::error::Last resort downloaded file jaxb-impl.jar is corrupted"
+                  exit 1
+                fi
               fi
             fi
           }
@@ -385,6 +538,14 @@ jobs:
                 "https://github.com/johnsonlee/jaxb-ri/raw/master/javax.activation-api.jar"
                 "https://github.com/kotlin/kotlinx.serialization/raw/master/third-party/jaxb/javax.activation-api.jar"
                 "https://github.com/kodein-Framework/Kodein-DB/raw/master/lib/jaxb/javax.activation-api.jar"
+                "https://github.com/googleapis/google-api-java-client/raw/main/extras/jaxb/lib/javax.activation-api.jar"
+                "https://github.com/fabric8io/kubernetes-client/raw/master/dependencies/jaxb/javax.activation-api.jar"
+                "https://github.com/jenkinsci/jaxb-api-plugin/raw/master/WEB-INF/lib/javax.activation-api.jar"
+                "https://github.com/apache/cxf/raw/main/tools/maven-plugins/javax.activation-api.jar"
+                "https://github.com/keycloak/keycloak/raw/main/modules/quarkus/javax.activation-api.jar"
+                "https://github.com/spring-projects/spring-boot/raw/main/spring-boot-project/spring-boot-tools/javax.activation-api.jar"
+                "https://github.com/hibernate/hibernate-orm/raw/main/lib/javax.activation-api.jar"
+                "https://github.com/neo4j/neo4j/raw/master/community/kernel/javax.activation-api.jar"
               )
               
               for repo in "${GITHUB_REPOS[@]}"; do
@@ -392,18 +553,40 @@ jobs:
                 wget -q "$repo" -O "javax.activation-api.jar"
                 
                 if [ $? -eq 0 ] && [ -s "javax.activation-api.jar" ]; then
-                  echo "Successfully downloaded javax.activation-api.jar from GitHub repository"
-                  break
+                  # 验证下载的JAR文件
+                  jar -tf "javax.activation-api.jar" > /dev/null 2>&1
+                  if [ $? -eq 0 ]; then
+                    echo "Successfully downloaded and verified javax.activation-api.jar from GitHub repository"
+                    break
+                  else
+                    echo "Downloaded file javax.activation-api.jar is corrupted. Trying next repository..."
+                    rm -f "javax.activation-api.jar"
+                  fi
+                else
+                  echo "Download from $repo failed. Trying next repository..."
+                  rm -f "javax.activation-api.jar"
                 fi
-                
-                echo "Download from $repo failed. Trying next repository..."
-                rm -f "javax.activation-api.jar"
               done
               
               # 检查是否从GitHub成功下载
               if [ ! -f "javax.activation-api.jar" ]; then
                 echo "::error::All methods failed to download javax.activation-api.jar"
-                exit 1
+                
+                # 作为最后的手段，尝试使用wget的备用参数
+                echo "Trying last resort method: direct download with wget fallback parameters"
+                wget -q --no-check-certificate --no-proxy --tries=5 --timeout=30 \
+                  "https://repo1.maven.org/maven2/javax/activation/javax.activation-api/1.2.0/javax.activation-api-1.2.0.jar" \
+                  -O "javax.activation-api.jar" || {
+                  echo "::error::Last resort method failed to download javax.activation-api.jar"
+                  exit 1
+                }
+                
+                # 验证最后的下载结果
+                jar -tf "javax.activation-api.jar" > /dev/null 2>&1
+                if [ $? -ne 0 ]; then
+                  echo "::error::Last resort downloaded file javax.activation-api.jar is corrupted"
+                  exit 1
+                fi
               fi
             fi
           }
@@ -498,304 +681,4 @@ jobs:
           ls -la build-tools.zip
           
           # 创建目标目录
-          mkdir -p $ANDROID_HOME/build-tools/30.0.3
-          
-          # 解压到临时目录
-          echo "Extracting Build-Tools 30.0.3..."
-          unzip -q build-tools.zip
-          
-          # 验证解压内容
-          echo "Contents of extracted files:"
-          ls -la
-          
-          # 检查是否存在android-11子目录
-          if [ -d "android-11" ]; then
-            echo "Found android-11 subdirectory. Moving contents to root..."
-            # 移动android-11目录中的所有文件到父目录
-            mv android-11/* $ANDROID_HOME/build-tools/30.0.3/
-            
-            # 删除空目录
-            rmdir android-11
-          else
-            # 如果没有android-11目录，直接移动所有文件
-            mv * $ANDROID_HOME/build-tools/30.0.3/
-          fi
-          
-          # 返回原始目录并清理临时文件
-          cd ..
-          rm -rf temp-build-tools
-          
-          # 验证安装
-          echo "Verifying installation..."
-          ls -la $ANDROID_HOME/build-tools/30.0.3
-          
-          # 检查AIDL工具是否存在
-          if [ -f "$ANDROID_HOME/build-tools/30.0.3/aidl" ]; then
-            echo "AIDL tool found!"
-            $ANDROID_HOME/build-tools/30.0.3/aidl --version || echo "AIDL version check failed"
-          else
-            echo "::error::AIDL tool not found!"
-            echo "Detailed contents of build-tools/30.0.3:"
-            find $ANDROID_HOME/build-tools/30.0.3 -type f
-            exit 1
-          fi
-          echo "::endgroup::"
-
-      - name: Create symlink for Buildozer cache
-        run: |
-          echo "::group::Creating symlink for Buildozer cache"
-          # 创建Buildozer期望的目录结构
-          mkdir -p /home/runner/.buildozer/android/platform/android-sdk
-          ln -s $ANDROID_HOME/build-tools /home/runner/.buildozer/android/platform/android-sdk/build-tools
-          ln -s $ANDROID_HOME/platforms /home/runner/.buildozer/android/platform/android-sdk/platforms
-          ln -s $ANDROID_HOME/cmdline-tools /home/runner/.buildozer/android/platform/android-sdk/cmdline-tools
-          ln -s $ANDROID_HOME/tools /home/runner/.buildozer/android/platform/android-sdk/tools
-          
-          # 验证链接
-          echo "Verifying symlinks:"
-          ls -la /home/runner/.buildozer/android/platform/android-sdk
-          echo "::endgroup::"
-
-      - name: List installed Android components
-        run: |
-          echo "::group::Installed Android components"
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list
-          echo "::endgroup::"
-
-      - name: Cache Android SDK
-        uses: actions/cache@v4
-        with:
-          path: |
-            $ANDROID_HOME
-            $ANDROID_HOME/cmdline-tools
-          key: ${{ runner.os }}-android-${{ github.run_id }}
-          restore-keys: |
-            ${{ runner.os }}-android-
-
-      - name: Generate buildozer.spec (with AIDL support)
-        run: |
-          echo "::group::Generating buildozer.spec"
-          cd ./repo
-          echo "Creating default buildozer.spec dynamically"
-          
-          cat > buildozer.spec << 'EOF'
-            [app]
-            title = Your App Title
-            package.name = your.app.name
-            package.domain = com.yourdomain
-            version = 1.0.0
-            source.dir = .
-            source.include_exts = py,png,jpg,kv,atlas,ttf,aidl
-            requirements = python3,kivy,pillow
-            android.permissions = INTERNET,READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE,CAMERA
-            android.api = 30
-            android.minapi = 23
-            android.sdk = 30
-            android.ndk = 25c
-            android.archs = armeabi-v7a
-            orientation = portrait
-            fullscreen = 0
-            android.aidl_include_dirs = src/main/aidl
-            android.logcat_filters = *:S python:D
-            android.gradle_dependencies = com.android.support:support-v4:27.1.1
-            android.sdk_build_tools_version = 30.0.3
-            android.skip_update = True
-            # 防止Buildozer尝试更新SDK (注释放在单独一行)
-          EOF
-          
-          cat buildozer.spec
-          echo "::endgroup::"
-
-      - name: Validate Android SDK environment
-        run: |
-          echo "::group::Validating Android SDK environment"
-          echo "=== ANDROID ENVIRONMENT CHECK ==="
-          echo "ANDROID_HOME: $ANDROID_HOME"
-          echo "SDK Tools Version:"
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --version
-          
-          echo "Build Tools Path:"
-          if [ -d "$ANDROID_HOME/build-tools/30.0.3" ]; then
-            echo "Build tools 30.0.3 found!"
-            ls -la $ANDROID_HOME/build-tools/30.0.3
-          else
-            echo "::error::Build tools 30.0.3 not found"
-            exit 1
-          fi
-          
-          echo "AIDL Tool Path:"
-          if [ -f "$ANDROID_HOME/build-tools/30.0.3/aidl" ]; then
-            echo "AIDL tool found!"
-          else
-            echo "::error::AIDL tool not found in build tools 30.0.3"
-            exit 1
-          fi
-          
-          echo "sdkmanager Path:"
-          if [ -f "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
-            echo "sdkmanager found!"
-          else
-            echo "::error::sdkmanager not found"
-            exit 1
-          fi
-          echo "::endgroup::"
-
-      - name: List project files (for debugging)
-        run: |
-          echo "::group::Listing project files"
-          cd ./repo
-          echo "=== PROJECT FILE STRUCTURE ==="
-          ls -laR .
-          echo "=== AIDL FILES FOUND ==="
-          find . -type f -name "*.aidl"
-          echo "::endgroup::"
-
-      - name: Test AIDL tool with minimal parameters
-        run: |
-          echo "::group::Testing AIDL compiler"
-          cd ./repo
-          echo "=== TESTING AIDL COMPILER ==="
-          AIDL_FILE_PATH="src/main/aidl/com/example/MyService.aidl"
-          
-          if [ -f "$AIDL_FILE_PATH" ]; then
-            echo "Compiling AIDL file: $AIDL_FILE_PATH"
-            $ANDROID_HOME/build-tools/30.0.3/aidl \
-              --out src/main/java \
-              --header_out src/main/cpp \
-              "$AIDL_FILE_PATH" || {
-              echo "::error::AIDL compilation failed"
-              exit 1
-            }
-            echo "AIDL compilation successful"
-          else
-            echo "WARNING: AIDL file not found at $AIDL_FILE_PATH"
-            echo "Creating sample AIDL file for testing"
-            mkdir -p src/main/aidl/com/example
-            
-            # 使用 tee 命令替代 heredoc
-            echo "package com.example;" > "$AIDL_FILE_PATH"
-            echo "interface MyService {" >> "$AIDL_FILE_PATH"
-            echo "  void basicTypes(int anInt, long aLong, boolean aBoolean);" >> "$AIDL_FILE_PATH"
-            echo "}" >> "$AIDL_FILE_PATH"
-            
-            echo "Sample AIDL file created"
-          fi
-          echo "::endgroup::"
-
-      - name: Build APK (with debug logs)
-        run: |
-          echo "::group::Building APK"
-          cd ./repo
-          echo "=== STARTING APK BUILD ==="
-          # 设置环境变量指向系统安装的SDK
-          export ANDROID_SDK_ROOT=$ANDROID_HOME
-          export ANDROID_HOME=$ANDROID_HOME
-          export BUILDOZER_DEBUG=1
-          
-          # 确保buildozer使用系统SDK
-          echo "Using system Android SDK at: $ANDROID_HOME"
-          
-          # 检查关键SDK组件
-          echo "Checking critical SDK components:"
-          if [ -f "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
-            echo "sdkmanager found: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          else
-            echo "::error::sdkmanager not found"
-            exit 1
-          fi
-          
-          if [ -f "$ANDROID_HOME/build-tools/30.0.3/aidl" ]; then
-            echo "AIDL tool found: $ANDROID_HOME/build-tools/30.0.3/aidl"
-          else
-            echo "::error::AIDL tool not found"
-            exit 1
-          fi
-          
-          # 防止Buildozer尝试下载SDK
-          mkdir -p /home/runner/.buildozer/android/platform
-          touch /home/runner/.buildozer/android/platform/accept-licenses
-          
-          # 设置Java模块路径和选项
-          export JAVA_MODULE_PATH="$(dirname $(dirname $(which java)))/lib/jmods"
-          export JAXB_CLASSPATH=$(find ~/jaxb -name "*.jar" -print0 | tr '\0' ':')
-          
-          # 更新JAVA_OPTS以包含JAXB类路径
-          export JAVA_OPTS="--add-modules=java.xml.bind --class-path=$JAXB_CLASSPATH"
-          
-          # 检查Java版本和环境
-          echo "=== JAVA ENVIRONMENT CHECK ==="
-          echo "Java version:"
-          java -version
-          echo "Java home:"
-          echo $JAVA_HOME
-          echo "Java module path:"
-          echo $JAVA_MODULE_PATH
-          echo "JAXB classpath:"
-          echo $JAXB_CLASSPATH
-          echo "Java options:"
-          echo $JAVA_OPTS
-          
-          # 验证JAXB依赖是否存在
-          echo "=== JAXB DEPENDENCIES CHECK ==="
-          if [ -d ~/jaxb ]; then
-            echo "JAXB dependencies directory exists:"
-            ls -la ~/jaxb
-          else
-            echo "::error::JAXB dependencies directory not found"
-            exit 1
-          fi
-          
-          # 测试sdkmanager是否能正常运行
-          echo "=== TESTING SDKMANAGER ==="
-          echo "Testing sdkmanager with --version:"
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --version
-          
-          echo "Testing sdkmanager with --list:"
-          # 先尝试使用修改后的JAVA_OPTS运行sdkmanager
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list || {
-            echo "::error::sdkmanager --list failed with modified JAVA_OPTS. Trying fallback..."
-            
-            # 如果失败，尝试使用更完整的JAXB类路径
-            JAXB_FALLBACK_PATH="/usr/share/java/jaxb-api.jar:/usr/share/java/jaxb-impl.jar:/usr/share/java/jaxb-core.jar:/usr/share/java/javax.activation.jar"
-            JAVA_OPTS_FALLBACK="--add-modules=java.xml.bind --class-path=$JAXB_FALLBACK_PATH"
-            
-            echo "Trying with fallback JAVA_OPTS: $JAVA_OPTS_FALLBACK"
-            JAVA_OPTS=$JAVA_OPTS_FALLBACK $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list || {
-              echo "::error::sdkmanager --list failed even with fallback. Continuing with build..."
-            }
-          }
-          
-          # 打印更多环境信息
-          echo "=== ENVIRONMENT VARIABLES ==="
-          env | grep -i java
-          env | grep -i android
-          
-          buildozer android debug --print_config_only
-          
-          # 保存buildozer配置到日志文件
-          buildozer android debug --print_config_only > bin/buildozer_config.log
-          
-          # 运行实际的APK构建
-          echo "=== STARTING ACTUAL APK BUILD ==="
-          buildozer -v android debug || { 
-            echo "::error::APK build failed"
-            cat bin/buildozer.log
-            exit 1
-          }
-          
-          if [ -f bin/*.apk ]; then
-            echo "APK successfully built"
-            mkdir -p artifacts
-            cp bin/*.apk artifacts/
-          else
-            echo "::error::No APK found after build"
-            exit 1
-          fi
-          echo "::endgroup::"
-
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: kivy-apk
-          path: ./repo/artifacts/
-          retention-days: 7
+          mkdir -p $ANDROID_HOME/build-tools

@@ -147,9 +147,26 @@ jobs:
           # 创建目标目录
           mkdir -p $ANDROID_HOME/build-tools/30.0.3
           
-          # 解压到目标目录
-          echo "Extracting Build-Tools 30.0.3 to $ANDROID_HOME/build-tools/30.0.3..."
-          unzip -q -d $ANDROID_HOME/build-tools/30.0.3 build-tools.zip
+          # 解压到临时目录
+          echo "Extracting Build-Tools 30.0.3..."
+          unzip -q build-tools.zip
+          
+          # 验证解压内容
+          echo "Contents of extracted files:"
+          ls -la
+          
+          # 检查是否存在android-11子目录
+          if [ -d "android-11" ]; then
+            echo "Found android-11 subdirectory. Moving contents to root..."
+            # 移动android-11目录中的所有文件到父目录
+            mv android-11/* $ANDROID_HOME/build-tools/30.0.3/
+            
+            # 删除空目录
+            rmdir android-11
+          else
+            # 如果没有android-11目录，直接移动所有文件
+            mv * $ANDROID_HOME/build-tools/30.0.3/
+          fi
           
           # 返回原始目录并清理临时文件
           cd ..
@@ -167,7 +184,7 @@ jobs:
             echo "::error::AIDL tool not found!"
             echo "Detailed contents of build-tools/30.0.3:"
             find $ANDROID_HOME/build-tools/30.0.3 -type f
-            exit 1  # 关键修改：如果AIDL不存在则终止工作流
+            exit 1
           fi
           echo "::endgroup::"
 

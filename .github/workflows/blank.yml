@@ -132,24 +132,46 @@ jobs:
       - name: Manually download and install Build-Tools 30.0.3
         run: |
           echo "::group::Manually installing Build-Tools 30.0.3"
-          # 创建build-tools目录
-          mkdir -p $ANDROID_HOME/build-tools
+          # 创建临时目录
+          mkdir -p temp-build-tools
+          cd temp-build-tools
           
           # 下载Build-Tools 30.0.3压缩包
           echo "Downloading Build-Tools 30.0.3..."
           wget -q https://dl.google.com/android/repository/build-tools_r30.0.3-linux.zip -O build-tools.zip
           
-          # 解压到指定目录
+          # 创建目标目录
+          mkdir -p $ANDROID_HOME/build-tools/30.0.3
+          
+          # 解压到临时目录
           echo "Extracting Build-Tools 30.0.3..."
-          unzip -q build-tools.zip -d $ANDROID_HOME/build-tools/30.0.3
+          unzip -q build-tools.zip
+          
+          # 验证解压内容
+          echo "Contents of extracted files:"
+          ls -la
+          
+          # 移动所有文件到目标目录
+          echo "Moving files to $ANDROID_HOME/build-tools/30.0.3..."
+          mv * $ANDROID_HOME/build-tools/30.0.3/
+          
+          # 返回原始目录并清理临时文件
+          cd ..
+          rm -rf temp-build-tools
           
           # 验证安装
           echo "Verifying installation..."
           ls -la $ANDROID_HOME/build-tools/30.0.3
-          $ANDROID_HOME/build-tools/30.0.3/aidl --version || echo "AIDL tool found but version check failed"
           
-          # 清理临时文件
-          rm build-tools.zip
+          # 检查AIDL工具是否存在
+          if [ -f "$ANDROID_HOME/build-tools/30.0.3/aidl" ]; then
+            echo "AIDL tool found!"
+            $ANDROID_HOME/build-tools/30.0.3/aidl --version || echo "AIDL version check failed"
+          else
+            echo "::error::AIDL tool not found!"
+            echo "Detailed contents of build-tools/30.0.3:"
+            find $ANDROID_HOME/build-tools/30.0.3 -type f
+          fi
           echo "::endgroup::"
 
       - name: List installed Android components

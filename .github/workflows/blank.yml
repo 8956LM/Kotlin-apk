@@ -35,21 +35,20 @@ jobs:
             echo "Contents of repository:"
             ls -la
             
-
-          if [ -f "requirements.txt" ]; then
-            echo "requirements.txt found"
-            cat requirements.txt
-          else
-            echo "::warning::requirements.txt not found in repository root"
-            echo "Creating minimal requirements.txt for buildozer"
-            cat > requirements.txt << EOF
+            if [ -f "requirements.txt" ]; then
+              echo "requirements.txt found"
+              cat requirements.txt
+            else
+              echo "::warning::requirements.txt not found in repository root"
+              echo "Creating minimal requirements.txt for buildozer"
+              cat > requirements.txt << EOF
           buildozer
           cython
           kivy
           pillow
           EOF
-            echo "Created minimal requirements.txt"
-          fi
+              echo "Created minimal requirements.txt"
+            fi
             
             if [ -f "buildozer.spec" ]; then
               echo "buildozer.spec found"
@@ -81,24 +80,31 @@ jobs:
           echo "::endgroup::"
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3  # 替换为正确的操作
+        uses: android-actions/setup-android@v3
         with:
-          # 注意：参数名称可能与原操作不同，根据实际操作调整
           components: |
-            build-tools;30.0.3
+            build-tools;30.0.3  # 使用30.0.3版本，避免36版本的许可证问题
             platforms;android-30
             platform-tools
             tools
             ndk;25.2.9519653
-          accept-licenses: true  # 参数名可能有变化
+          accept-licenses: true
+
+      - name: Accept Android SDK licenses
+        run: |
+          echo "::group::Accepting Android SDK licenses"
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list
+          echo "::endgroup::"
 
       - name: Validate ANDROID_HOME environment variable
         run: |
           echo "::group::Validating ANDROID_HOME environment variable"
-          echo "Expected ANDROID_HOME path: /usr/local/lib/android/sdk"
+          echo "Expected ANDROID_HOME path: $ANDROID_HOME"
           echo "Actual ANDROID_HOME path: $ANDROID_HOME"
-          if [ "$ANDROID_HOME" != "/usr/local/lib/android/sdk" ]; then
-            echo "::warning::ANDROID_HOME may be misconfigured"
+          if [ -z "$ANDROID_HOME" ]; then
+            echo "::error::ANDROID_HOME environment variable is not set"
+            exit 1
           fi
           echo "::endgroup::"
 
@@ -193,14 +199,6 @@ jobs:
           ls -laR .
           echo "=== AIDL FILES FOUND ==="
           find . -type f -name "*.aidl"
-          echo "::endgroup::"
-
-      - name: Accept SDK licenses (debug version)
-        run: |
-          echo "::group::Accepting SDK licenses"
-          cd ./repo
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list
           echo "::endgroup::"
 
       - name: Test AIDL tool with minimal parameters

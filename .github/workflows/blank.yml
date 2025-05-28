@@ -22,13 +22,38 @@ jobs:
           python-version: '3.10'
           cache: 'pip'  # 自动缓存 pip 依赖
 
+      - name: Validate project files
+        run: |
+          echo "::group::Checking project files"
+          echo "Current directory: $(pwd)"
+          echo "Contents of current directory:"
+          ls -la
+          
+          # 检查 requirements.txt 是否存在
+          if [ -f "requirements.txt" ]; then
+            echo "requirements.txt found"
+            cat requirements.txt
+          else
+            echo "::warning::requirements.txt not found in repository root"
+            echo "Creating empty requirements.txt for caching purposes"
+            touch requirements.txt
+          fi
+          
+          # 检查 buildozer.spec 是否存在
+          if [ -f "buildozer.spec" ]; then
+            echo "buildozer.spec found"
+          else
+            echo "::warning::buildozer.spec not found in repository root"
+          fi
+          echo "::endgroup::"
+
       - name: Cache Python dependencies
         uses: actions/cache@v4
         with:
           path: |
             ~/.cache/pip
             **/__pycache__
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
 
@@ -56,7 +81,7 @@ jobs:
           path: |
             $ANDROID_HOME
             $ANDROID_HOME/cmdline-tools
-          key: ${{ runner.os }}-android-${{ hashFiles('**/buildozer.spec') }}
+          key: ${{ runner.os }}-android-${{ hashFiles('buildozer.spec') }}
           restore-keys: |
             ${{ runner.os }}-android-
 

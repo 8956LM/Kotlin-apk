@@ -79,17 +79,22 @@ jobs:
           python -m pip install buildozer cython
           echo "::endgroup::"
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Setup Android SDK (Google官方)
+        uses: google-github-actions/setup-android-sdk@v2
         with:
+          build-tools-version: 30.0.3
+          platform-version: 30
+          licenses: |
+            android-sdk-license.*
           components: |
-            build-tools;30.0.3
-            platforms;android-30
             platform-tools
             tools
-            ndk;25.2.9519653
-          accept-licenses: true
-          sdk-tools: 4333796  # 明确指定SDK工具版本，避免兼容性问题
+
+      - name: Validate build-tools installation
+        run: |
+          echo "=== INSTALLED BUILD TOOLS ==="
+          ls -la $ANDROID_HOME/build-tools/30.0.3/aidl
+          $ANDROID_HOME/build-tools/30.0.3/aidl --version
 
       - name: Force accept all Android SDK licenses
         run: |

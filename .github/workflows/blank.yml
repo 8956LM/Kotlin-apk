@@ -1,9 +1,7 @@
-name: Build Android APK with Kivy
+name: Build Kivy APK
 
 on:
   push:
-    branches: [ main ]
-  pull_request:
     branches: [ main ]
 
 jobs:
@@ -11,150 +9,78 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Setup Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install buildozer
+          python -m pip install buildozer cython
 
-      - name: Patch Python for Android
+      - name: Setup Android SDK with License Acceptance
+        uses: android-actions/setup-android@v2
+        with:
+          packages: |
+            build-tools;30.0.3
+            platforms;android-30
+            platform-tools
+          license-accept: true
+
+      - name: Verify buildozer.spec exists
         run: |
-          set -e  # 确保任何命令失败都会导致脚本退出
-          
-          # 克隆 Python for Android 仓库
-          echo "Cloning Python for Android repository..."
-          git clone https://github.com/kivy/python-for-android.git ~/.buildozer/android/platform/python-for-android
-          
-          # 可选：切换到特定版本以确保兼容性
-          cd ~/.buildozer/android/platform/python-for-android
-          git checkout master  # 或指定特定版本的标签
-          
-          # 查找 NDK 版本定义文件
-          echo "Searching for NDK version definition..."
-          find_result=$(find ~/.buildozer/android/platform/python-for-android -name "download.py" -o -name "ndk.py" -o -name "versions.py" -o -name "toolchain.py")
-          
-          if [ -z "$find_result" ]; then
-            echo "❌ ERROR: Could not find NDK version definition files"
-            exit 1
-          else
-            echo "✅ Found files:"
-            echo "$find_result"
+          if [ ! -f buildozer.spec ]; then
+            buildozer init
+            # 修改默认配置（可选）
+            sed -i 's/package.name = myapp/package.name = your_app_name/' buildozer.spec
           fi
+          cat buildozer.spec  # 打印配置用于调试
+
+      - name: Manually Accept SDK Licenses
+        run: |
+          # 创建许可证目录并写入接受文件
+          mkdir -p $ANDROID_HOME/licenses
+          echo -e "\n8933bad161af4178b1185d1a37fbf41ea5269c8" > $ANDROID_HOME/licenses/android-sdk-license
+          echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd" > $ANDROID_HOME/licenses/android-sdk-preview-license
+          echo -e "\nd56f5187479451eabf01fb78af6dfcb131a6481e" > $ANDROID_HOME/licenses/intel-android-extra-license
+          # 验证许可证文件存在
+          ls -la $ANDROID_HOME/licenses
+
+      - name: Install Required Build Tools
+        run: |
+          # 确认 SDK 路径
+          echo "ANDROID_HOME: $ANDROID_HOME"
+          echo "PATH: $PATH"
           
-          # 查找实际包含 NDK 版本定义的文件
-          echo "Searching for NDK version definition in files..."
-          ndk_files=$(grep -rl "DEFAULT_NDK_VERSION\|NDK_VERSION" ~/.buildozer/android/platform/python-for-android || true)
+          # 安装指定版本的 build-tools
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;30.0.3"
           
-          if [ -z "$ndk_files" ]; then
-            echo "⚠️ WARNING: Could not find NDK version definition in any file. Trying alternative patterns..."
-            
-            # 尝试更多版本定义模式
-            ndk_files=$(grep -rl "ndk_version\|default_ndk_version\|NDK_REVISION" ~/.buildozer/android/platform/python-for-android || true)
-            
-            if [ -z "$ndk_files" ]; then
-              echo "❌ ERROR: Could not find NDK version definition in any file"
-              exit 1
-            else
-              echo "✅ Found alternative NDK version definition in:"
-              echo "$ndk_files"
-            fi
-          else
-            echo "✅ Found NDK version definition in:"
-            echo "$ndk_files"
-          fi
+          # 验证 build-tools 已安装
+          ls -la $ANDROID_HOME/build-tools/30.0.3
           
-          # 验证文件是否存在
-          file_exists=false
-          for file in $ndk_files; do
-            if [ -f "$file" ]; then
-              file_exists=true
-              echo "✅ File exists: $file"
-            else
-              echo "⚠️ WARNING: File does not exist: $file"
-            fi
-          done
-          
-          if [ "$file_exists" = false ]; then
-            echo "❌ ERROR: None of the found files exist"
-            exit 1
-          fi
-          
-          # 循环处理每个文件
-          echo "Patching NDK version in files..."
-          patch_success=false
-          
-          # 尝试多种可能的替换模式
-          patterns=(
-            "s/DEFAULT_NDK_VERSION = \"25b\"/DEFAULT_NDK_VERSION = \"26b\"/g"
-            "s/NDK_VERSION = \"25b\"/NDK_VERSION = \"26b\"/g"
-            "s/ndk_version = \"25b\"/ndk_version = \"26b\"/g"
-            "s/DEFAULT_NDK_VERSION='25b'/DEFAULT_NDK_VERSION='26b'/g"
-            "s/NDK_VERSION='25b'/NDK_VERSION='26b'/g"
-            "s/ndk_version='25b'/ndk_version='26b'/g"
-          )
-          
-          for file in $ndk_files; do
-            if [ -f "$file" ] && [ -w "$file" ]; then
-              echo "  - Processing file: $file"
-              
-              # 尝试每种替换模式
-              for pattern in "${patterns[@]}"; do
-                echo "    - Trying pattern: $pattern"
-                sed -i "$pattern" "$file"
-                if grep -q "26b" "$file"; then
-                  echo "    ✅ Successfully patched $file"
-                  patch_success=true
-                  break
-                else
-                  echo "    ❌ Pattern did not match in $file"
-                fi
-              done
-            else
-              echo "  ❌ Skipping file (not found or not writable): $file"
-            fi
-          done
-          
-          if [ "$patch_success" = false ]; then
-            echo "❌ ERROR: Failed to patch any files"
-            exit 1
-          fi
-          
-          # 验证修改
-          echo "Verifying modification..."
-          grep_result=$(grep -r "26b" ~/.buildozer/android/platform/python-for-android || true)
-          
-          if [ -z "$grep_result" ]; then
-            echo "❌ ERROR: Failed to verify modification"
-            exit 1
-          else
-            echo "✅ NDK version successfully updated to 26b:"
-            echo "$grep_result"
-          fi
-          
-          # 检查目录权限
-          echo "Checking directory permissions:"
-          ls -la ~/.buildozer/android/platform/python-for-android
-          
-          # 验证 p4a 可执行文件
-          echo "Checking p4a executable:"
-          if [ -f ~/.buildozer/android/platform/python-for-android/pythonforandroid/toolchain.py ]; then
-            echo "✅ p4a toolchain.py found"
-          else
-            echo "❌ ERROR: p4a toolchain.py not found"
-            exit 1
-          fi
-          
-          echo "✅ Python for Android successfully patched!"
+          # 验证 aidl 工具存在
+          $ANDROID_HOME/build-tools/30.0.3/aidl --version
 
       - name: Build APK
         run: |
-          # 这里添加您的 APK 构建命令
-          echo "Building APK..."
-          # buildozer android debug
+          # 强制指定 SDK 路径（确保 Buildozer 使用正确的 SDK）
+          export ANDROID_SDK_ROOT=$ANDROID_HOME
+          
+          # 验证环境变量
+          echo "ANDROID_HOME: $ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT: $ANDROID_SDK_ROOT"
+          
+          # 构建 APK
+          buildozer -v android debug
+          mkdir artifacts
+          cp bin/*.apk artifacts/
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: kivy-apk
+          path: artifacts/

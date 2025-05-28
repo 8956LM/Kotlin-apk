@@ -34,7 +34,6 @@ jobs:
             cd ./repo
             echo "Contents of repository:"
             ls -la
-            
 
           if [ -f "requirements.txt" ]; then
             echo "requirements.txt found"
@@ -52,7 +51,6 @@ jobs:
           fi
             
         
-            
             if [ -f "buildozer.spec" ]; then
               echo "buildozer.spec found"
             else
@@ -106,7 +104,17 @@ jobs:
       - name: Re-install build-tools;30.0.3
         run: |
           echo "::group::Re-installing build-tools;30.0.3"
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;30.0.3" --install --force
+          echo "sdkmanager version:"
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --version
+          
+          echo "Checking existing build tools:"
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list | grep build-tools
+          
+          echo "Installing build-tools;30.0.3"
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;30.0.3"
+          
+          echo "Verifying installation:"
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list | grep build-tools
           echo "::endgroup::"
 
       - name: List installed Android components

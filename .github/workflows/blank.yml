@@ -83,12 +83,13 @@ jobs:
         uses: android-actions/setup-android@v3
         with:
           components: |
-            build-tools;30.0.3  # 明确指定版本
+            build-tools;30.0.3
             platforms;android-30
             platform-tools
             tools
             ndk;25.2.9519653
           accept-licenses: true
+          sdk-tools: 4333796  # 明确指定SDK工具版本，避免兼容性问题
 
       - name: Force accept all Android SDK licenses
         run: |
@@ -114,6 +115,22 @@ jobs:
           fi
           echo "::endgroup::"
 
+      - name: List available Android SDK components
+        run: |
+          echo "::group::Available Android SDK components"
+          echo "SDK Manager version:"
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --version
+          
+          echo "Available build tools:"
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list | grep build-tools
+          
+          echo "Available platforms:"
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list | grep platforms
+          
+          echo "SDK directory structure:"
+          ls -laR $ANDROID_HOME
+          echo "::endgroup::"
+
       - name: Re-install build-tools;30.0.3
         run: |
           echo "::group::Re-installing build-tools;30.0.3"
@@ -124,10 +141,13 @@ jobs:
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list | grep build-tools
           
           echo "Installing build-tools;30.0.3"
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;30.0.3"
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;30.0.3" --verbose
           
           echo "Verifying installation:"
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list | grep build-tools
+          
+          echo "Checking build-tools directory:"
+          ls -la $ANDROID_HOME/build-tools
           echo "::endgroup::"
 
       - name: List installed Android components
@@ -162,9 +182,9 @@ jobs:
             source.include_exts = py,png,jpg,kv,atlas,ttf,aidl
             requirements = python3,kivy,pillow
             android.permissions = INTERNET,READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE,CAMERA
-            android.api = 30  # 与安装的SDK版本匹配
+            android.api = 30
             android.minapi = 23
-            android.sdk = 30  # 与安装的SDK版本匹配
+            android.sdk = 30
             android.ndk = 25c
             android.arch = armeabi-v7a
             orientation = portrait
@@ -172,7 +192,7 @@ jobs:
             android.aidl_include_dirs = src/main/aidl
             android.logcat_filters = *:S python:D
             android.gradle_dependencies = com.android.support:support-v4:27.1.1
-            android.sdk_build_tools_version = 30.0.3  # 明确指定Build-Tools版本
+            android.sdk_build_tools_version = 30.0.3
           EOF
           
           cat buildozer.spec
@@ -181,21 +201,32 @@ jobs:
       - name: Validate Android SDK environment
         run: |
           echo "::group::Validating Android SDK environment"
-          cd ./repo
           echo "=== ANDROID ENVIRONMENT CHECK ==="
           echo "ANDROID_HOME: $ANDROID_HOME"
           echo "SDK Tools Version:"
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --version
+          
           echo "Build Tools Path:"
-          ls -ld $ANDROID_HOME/build-tools/30.0.3 || {
-            echo "::error::Build tools 30.0.3 not found after reinstallation"
+          if [ -d "$ANDROID_HOME/build-tools/30.0.3" ]; then
+            echo "Build tools 30.0.3 found!"
+            ls -la $ANDROID_HOME/build-tools/30.0.3
+          else
+            echo "::error::Build tools 30.0.3 not found"
+            echo "Available build tools:"
+            ls -la $ANDROID_HOME/build-tools || echo "No build tools directory found"
             exit 1
-          }
+          fi
+          
           echo "AIDL Tool Path:"
-          ls -l $ANDROID_HOME/build-tools/30.0.3/aidl || {
+          if [ -f "$ANDROID_HOME/build-tools/30.0.3/aidl" ]; then
+            echo "AIDL tool found!"
+            $ANDROID_HOME/build-tools/30.0.3/aidl --version || echo "AIDL version check failed"
+          else
             echo "::error::AIDL tool not found in build tools 30.0.3"
+            echo "Contents of build-tools/30.0.3:"
+            ls -la $ANDROID_HOME/build-tools/30.0.3 || echo "Directory does not exist"
             exit 1
-          }
+          fi
           echo "::endgroup::"
 
       - name: List project files (for debugging)

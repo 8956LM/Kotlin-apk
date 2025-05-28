@@ -101,37 +101,141 @@ jobs:
           mkdir -p ~/jaxb
           cd ~/jaxb
           
-          # 下载JAXB核心依赖（增加重试机制）
+          # 定义多个下载源
+          PRIMARY_MAVEN_REPO="https://repo1.maven.org/maven2"
+          ALTERNATE_MAVEN_REPO="https://maven-central.storage-download.googleapis.com/maven2"
+          JCENTER_REPO="https://jcenter.bintray.com"
+          
+          # 下载JAXB核心依赖（增加更多下载源和错误处理）
           MAX_RETRIES=3
+          RETRY_DELAY=5  # 秒
           
           download_with_retry() {
-            local url=$1
-            local file=$2
+            local base_url=$1
+            local artifact_path=$2
+            local file_name=$3
             local attempts=0
             
+            echo "Trying to download $file_name from $base_url"
+            
             while [ $attempts -lt $MAX_RETRIES ]; do
-              echo "Downloading $file (attempt $((attempts+1))/$MAX_RETRIES)..."
-              wget -q $url -O $file
+              echo "Downloading $file_name (attempt $((attempts+1))/$MAX_RETRIES)..."
+              wget -q "$base_url/$artifact_path" -O "$file_name"
               
-              if [ $? -eq 0 ] && [ -s $file ]; then
-                echo "Successfully downloaded $file"
+              if [ $? -eq 0 ] && [ -s "$file_name" ]; then
+                echo "Successfully downloaded $file_name"
                 return 0
               fi
               
               attempts=$((attempts+1))
-              echo "Download failed. Retrying in 5 seconds..."
-              sleep 5
+              echo "Download failed. Retrying in $RETRY_DELAY seconds..."
+              sleep $RETRY_DELAY
             done
             
-            echo "::error::Failed to download $file after $MAX_RETRIES attempts"
+            echo "::error::Failed to download $file_name from $base_url after $MAX_RETRIES attempts"
             return 1
           }
           
+          download_from_any_source() {
+            local artifact_path=$1
+            local file_name=$2
+            
+            # 尝试从主要Maven仓库下载
+            download_with_retry "$PRIMARY_MAVEN_REPO" "$artifact_path" "$file_name"
+            if [ $? -eq 0 ]; then
+              return 0
+            fi
+            
+            # 尝试从替代Maven仓库下载
+            echo "Falling back to alternate Maven repository..."
+            download_with_retry "$ALTERNATE_MAVEN_REPO" "$artifact_path" "$file_name"
+            if [ $? -eq 0 ]; then
+              return 0
+            fi
+            
+            # 尝试从JCenter下载
+            echo "Falling back to JCenter repository..."
+            download_with_retry "$JCENTER_REPO" "$artifact_path" "$file_name"
+            if [ $? -eq 0 ]; then
+              return 0
+            fi
+            
+            # 所有下载源都失败
+            echo "::error::Failed to download $file_name from all available repositories"
+            return 1
+          }
+          
+          # 检查并创建备份目录用于临时存储
+          mkdir -p ~/jaxb_backup
+          
           # 下载各个JAXB依赖
-          download_with_retry "https://repo1.maven.org/maven2/javax/xml/bind/jaxb-api/${JAXB_VERSION}/jaxb-api-${JAXB_VERSION}.jar" "jaxb-api.jar" || exit 1
-          download_with_retry "https://repo1.maven.org/maven2/com/sun/xml/bind/jaxb-core/${JAXB_VERSION}/jaxb-core-${JAXB_VERSION}.jar" "jaxb-core.jar" || exit 1
-          download_with_retry "https://repo1.maven.org/maven2/com/sun/xml/bind/jaxb-impl/${JAXB_VERSION}/jaxb-impl-${JAXB_VERSION}.jar" "jaxb-impl.jar" || exit 1
-          download_with_retry "https://repo1.maven.org/maven2/javax/activation/javax.activation-api/1.2.0/javax.activation-api-1.2.0.jar" "javax.activation-api.jar" || exit 1
+          echo "=== DOWNLOADING JAXB DEPENDENCIES ==="
+          
+          # 下载jaxb-api
+          echo "Downloading jaxb-api.jar..."
+          download_from_any_source "javax/xml/bind/jaxb-api/${JAXB_VERSION}/jaxb-api-${JAXB_VERSION}.jar" "jaxb-api.jar" || {
+            echo "::error::Failed to download jaxb-api.jar. Trying backup method..."
+            
+            # 尝试从本地备份或GitHub仓库下载
+            if [ -f ~/jaxb_backup/jaxb-api.jar ]; then
+              echo "Using local backup for jaxb-api.jar"
+              cp ~/jaxb_backup/jaxb-api.jar ./
+            else
+              echo "Trying to download from GitHub repository..."
+              wget -q "https://github.com/yourusername/yourrepo/raw/main/jaxb/jaxb-api.jar" -O "jaxb-api.jar" || {
+                echo "::error::All methods failed to download jaxb-api.jar"
+                exit 1
+              }
+            fi
+          }
+          
+          # 下载jaxb-core
+          echo "Downloading jaxb-core.jar..."
+          download_from_any_source "com/sun/xml/bind/jaxb-core/${JAXB_VERSION}/jaxb-core-${JAXB_VERSION}.jar" "jaxb-core.jar" || {
+            echo "::error::Failed to download jaxb-core.jar. Trying backup method..."
+            if [ -f ~/jaxb_backup/jaxb-core.jar ]; then
+              echo "Using local backup for jaxb-core.jar"
+              cp ~/jaxb_backup/jaxb-core.jar ./
+            else
+              echo "Trying to download from GitHub repository..."
+              wget -q "https://github.com/yourusername/yourrepo/raw/main/jaxb/jaxb-core.jar" -O "jaxb-core.jar" || {
+                echo "::error::All methods failed to download jaxb-core.jar"
+                exit 1
+              }
+            fi
+          }
+          
+          # 下载jaxb-impl
+          echo "Downloading jaxb-impl.jar..."
+          download_from_any_source "com/sun/xml/bind/jaxb-impl/${JAXB_VERSION}/jaxb-impl-${JAXB_VERSION}.jar" "jaxb-impl.jar" || {
+            echo "::error::Failed to download jaxb-impl.jar. Trying backup method..."
+            if [ -f ~/jaxb_backup/jaxb-impl.jar ]; then
+              echo "Using local backup for jaxb-impl.jar"
+              cp ~/jaxb_backup/jaxb-impl.jar ./
+            else
+              echo "Trying to download from GitHub repository..."
+              wget -q "https://github.com/yourusername/yourrepo/raw/main/jaxb/jaxb-impl.jar" -O "jaxb-impl.jar" || {
+                echo "::error::All methods failed to download jaxb-impl.jar"
+                exit 1
+              }
+            fi
+          }
+          
+          # 下载javax.activation-api
+          echo "Downloading javax.activation-api.jar..."
+          download_from_any_source "javax/activation/javax.activation-api/1.2.0/javax.activation-api-1.2.0.jar" "javax.activation-api.jar" || {
+            echo "::error::Failed to download javax.activation-api.jar. Trying backup method..."
+            if [ -f ~/jaxb_backup/javax.activation-api.jar ]; then
+              echo "Using local backup for javax.activation-api.jar"
+              cp ~/jaxb_backup/javax.activation-api.jar ./
+            else
+              echo "Trying to download from GitHub repository..."
+              wget -q "https://github.com/yourusername/yourrepo/raw/main/jaxb/javax.activation-api.jar" -O "javax.activation-api.jar" || {
+                echo "::error::All methods failed to download javax.activation-api.jar"
+                exit 1
+              }
+            fi
+          }
           
           # 创建JAXB类路径
           export JAXB_CLASSPATH=$(find ~/jaxb -name "*.jar" -print0 | tr '\0' ':')

@@ -229,11 +229,11 @@ jobs:
             echo "Creating sample AIDL file for testing"
             mkdir -p src/main/aidl/com/example
             cat > "$AIDL_FILE_PATH" << 'EOF'
-package com.example;
-interface MyService {
-  void basicTypes(int anInt, long aLong, boolean aBoolean);
-}
-EOF
+            package com.example;
+            interface MyService {
+            void basicTypes(int anInt, long aLong, boolean aBoolean);
+            }
+            EOF
             echo "Sample AIDL file created"
           fi
           echo "::endgroup::"

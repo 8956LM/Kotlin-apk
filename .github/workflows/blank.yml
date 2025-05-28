@@ -35,25 +35,20 @@ jobs:
             echo "Contents of repository:"
             ls -la
             
-
-          if [ -f "requirements.txt" ]; then
-            echo "requirements.txt found"
-            cat requirements.txt
-          else
-            echo "::warning::requirements.txt not found in repository root"
-            echo "Creating minimal requirements.txt for buildozer"
-            cat > requirements.txt << EOF
-          buildozer
-          cython
-          kivy
-          pillow
-          EOF
-            echo "Created minimal requirements.txt"
-          fi
-
-
-
-
+            if [ -f "requirements.txt" ]; then
+              echo "requirements.txt found"
+              cat requirements.txt
+            else
+              echo "::warning::requirements.txt not found in repository root"
+              echo "Creating minimal requirements.txt for buildozer"
+              cat > requirements.txt << EOF
+            buildozer
+            cython
+            kivy
+            pillow
+            EOF
+              echo "Created minimal requirements.txt"
+            fi
             
             if [ -f "buildozer.spec" ]; then
               echo "buildozer.spec found"
@@ -85,15 +80,16 @@ jobs:
           echo "::endgroup::"
 
       - name: Setup Android SDK
-        uses: actions/setup-android@v2
+        uses: new - setup - android@v1  # 替换为合适的操作及版本
         with:
-          packages: |
+          # 根据新操作要求调整参数
+          android_packages: |
             build-tools;30.0.3
             platforms;android-30
             platform-tools
             tools
             ndk;25.2.9519653
-          license-accept: true
+          accept_licenses: true
 
       - name: Validate ANDROID_HOME environment variable
         run: |

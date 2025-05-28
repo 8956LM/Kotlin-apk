@@ -27,7 +27,7 @@ jobs:
         run: ./gradlew assembleDebug  # 构建 Debug APK
         
       - name: Upload APK
-        uses: actions/upload-artifact@v3  # 上传构建好的 APK 作为工作流产物
+        uses: actions/upload-artifact@v2  # 使用 v2 版本上传构建好的 APK 作为工作流产物
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/*.apk

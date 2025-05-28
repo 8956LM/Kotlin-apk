@@ -1,4 +1,4 @@
-name: Build Android App
+name: Build Android App and Upload to Baidu Cloud
 
 on:
   push:
@@ -26,19 +26,60 @@ jobs:
       - name: Build with Gradle
         run: ./gradlew assembleDebug  # 构建 Debug APK
         
-      - name: Upload APK as artifact
+      - name: Setup BaiduPCS-Go
         run: |
-          # 创建 artifacts 目录用于存储要上传的文件
-          mkdir -p artifacts
-          # 复制 APK 文件到 artifacts 目录
-          cp app/build/outputs/apk/debug/*.apk artifacts/
-          # 使用 GitHub CLI 上传文件
-          echo "::set-output name=artifact_path::$(realpath artifacts/*.apk)"
-          echo "::set-output name=artifact_name::app-debug.apk"
-        id: artifact
-
-      - name: Archive APK
-        uses: actions/upload-artifact@v3
+          # 下载并安装 BaiduPCS-Go
+          wget -q https://github.com/iikira/BaiduPCS-Go/releases/download/3.8.3/BaiduPCS-Go-3.8.3-linux-amd64.zip
+          unzip -q BaiduPCS-Go-3.8.3-linux-amd64.zip
+          chmod +x BaiduPCS-Go
+          sudo mv BaiduPCS-Go /usr/local/bin/
+          
+      - name: Authenticate with Baidu Cloud
+        env:
+          BAIDU_COOKIE: ${{ secrets.BAIDU_COOKIE }}
+        run: |
+          # 使用 Cookie 进行认证
+          echo "$BAIDU_COOKIE" > cookies.txt
+          BaiduPCS-Go cookie -set < cookies.txt
+          
+      - name: Create timestamped folder
+        run: |
+          # 创建带时间戳的文件夹
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          FOLDER="/GitHub_Actions_Builds/$TIMESTAMP"
+          BaiduPCS-Go mkdir "$FOLDER"
+          echo "UPLOAD_FOLDER=$FOLDER" >> $GITHUB_ENV
+          
+      - name: Upload APK to Baidu Cloud
+        run: |
+          # 上传 APK 文件
+          BaiduPCS-Go upload app/build/outputs/apk/debug/app-debug.apk "$UPLOAD_FOLDER/"
+          
+      - name: Share APK and get download link
+        id: share
+        run: |
+          # 分享文件并获取下载链接
+          SHARE_RESULT=$(BaiduPCS-Go share -v -p "$UPLOAD_FOLDER/app-debug.apk")
+          SHARE_LINK=$(echo "$SHARE_RESULT" | grep "链接" | awk '{print $2}')
+          PASSWORD=$(echo "$SHARE_RESULT" | grep "提取码" | awk '{print $2}')
+          
+          echo "SHARE_LINK=$SHARE_LINK" >> $GITHUB_ENV
+          echo "PASSWORD=$PASSWORD" >> $GITHUB_ENV
+          
+          echo "APK已上传到百度网盘"
+          echo "分享链接: $SHARE_LINK"
+          echo "提取码: $PASSWORD"
+          
+      - name: Notify via GitHub comment
+        if: success() && github.event_name == 'pull_request'
+        uses: actions/github-script@v6
         with:
-          name: ${{ steps.artifact.outputs.artifact_name }}
-          path: ${{ steps.artifact.outputs.artifact_path }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { SHARE_LINK, PASSWORD } = process.env;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `APK构建成功并已上传到百度网盘！\n\n分享链接: ${SHARE_LINK}\n提取码: ${PASSWORD}`
+            });

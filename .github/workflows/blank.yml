@@ -200,10 +200,14 @@ jobs:
             # 尝试从镜像站点下载
             echo "=== ATTEMPTING MIRROR SITES ==="
             MIRROR_SITES=(
-              "https://maven.aliyun.com/repository/central"
-              "https://repo.spring.io/libs-release"
+              "https://maven.aliyun.com/repository/public"
+              "https://repo1.maven.org/maven2"
               "https://repo.spring.io/plugins-release"
-              "https://oss.sonatype.org/content/repositories/releases"
+              "https://jitpack.io"
+              "https://packages.confluent.io/maven/"
+              "https://repo.huaweicloud.com/repository/maven/"
+              "https://maven.sonatype.org/content/groups/public/"
+              "https://maven.google.com"
             )
             
             for mirror in "${MIRROR_SITES[@]}"; do
@@ -218,6 +222,19 @@ jobs:
             echo "::error::Failed to download $file_name from all available repositories"
             return 1
           }
+          
+          # 检查系统是否已安装JAXB
+          if [ -f "/usr/share/java/jaxb-api.jar" ]; then
+            echo "Using system JAXB"
+            mkdir -p ~/jaxb
+            cp /usr/share/java/jaxb-api.jar ~/jaxb/
+            cp /usr/share/java/jaxb-core.jar ~/jaxb/
+            cp /usr/share/java/jaxb-impl.jar ~/jaxb/
+            cp /usr/share/java/javax.activation.jar ~/jaxb/
+            echo "JAXB_CLASSPATH=$(find ~/jaxb -name "*.jar" -print0 | tr '\0' ':')" >> $GITHUB_ENV
+            echo "::endgroup::"
+            return 0
+          fi
           
           # 检查并创建备份目录用于临时存储
           mkdir -p ~/jaxb_backup
@@ -239,10 +256,12 @@ jobs:
               
               # 尝试从多个GitHub仓库下载
               GITHUB_REPOS=(
-                "https://github.com/yourusername/yourrepo/raw/main/jaxb/jaxb-api.jar"
                 "https://github.com/kivy/buildozer/raw/master/dependencies/jaxb/jaxb-api.jar"
                 "https://github.com/microsoft/appcenter-sdk-dotnet/raw/master/nuget-packages/jaxb/jaxb-api.jar"
                 "https://github.com/rovo89/XposedBridge/raw/master/tools/jaxb/jaxb-api.jar"
+                "https://github.com/johnsonlee/jaxb-ri/raw/master/jaxb-api.jar"
+                "https://github.com/kotlin/kotlinx.serialization/raw/master/third-party/jaxb/jaxb-api.jar"
+                "https://github.com/kodein-Framework/Kodein-DB/raw/master/lib/jaxb/jaxb-api.jar"
               )
               
               for repo in "${GITHUB_REPOS[@]}"; do
@@ -278,10 +297,12 @@ jobs:
               
               # 尝试从多个GitHub仓库下载
               GITHUB_REPOS=(
-                "https://github.com/yourusername/yourrepo/raw/main/jaxb/jaxb-core.jar"
                 "https://github.com/kivy/buildozer/raw/master/dependencies/jaxb/jaxb-core.jar"
                 "https://github.com/microsoft/appcenter-sdk-dotnet/raw/master/nuget-packages/jaxb/jaxb-core.jar"
                 "https://github.com/rovo89/XposedBridge/raw/master/tools/jaxb/jaxb-core.jar"
+                "https://github.com/johnsonlee/jaxb-ri/raw/master/jaxb-core.jar"
+                "https://github.com/kotlin/kotlinx.serialization/raw/master/third-party/jaxb/jaxb-core.jar"
+                "https://github.com/kodein-Framework/Kodein-DB/raw/master/lib/jaxb/jaxb-core.jar"
               )
               
               for repo in "${GITHUB_REPOS[@]}"; do
@@ -317,10 +338,12 @@ jobs:
               
               # 尝试从多个GitHub仓库下载
               GITHUB_REPOS=(
-                "https://github.com/yourusername/yourrepo/raw/main/jaxb/jaxb-impl.jar"
                 "https://github.com/kivy/buildozer/raw/master/dependencies/jaxb/jaxb-impl.jar"
                 "https://github.com/microsoft/appcenter-sdk-dotnet/raw/master/nuget-packages/jaxb/jaxb-impl.jar"
                 "https://github.com/rovo89/XposedBridge/raw/master/tools/jaxb/jaxb-impl.jar"
+                "https://github.com/johnsonlee/jaxb-ri/raw/master/jaxb-impl.jar"
+                "https://github.com/kotlin/kotlinx.serialization/raw/master/third-party/jaxb/jaxb-impl.jar"
+                "https://github.com/kodein-Framework/Kodein-DB/raw/master/lib/jaxb/jaxb-impl.jar"
               )
               
               for repo in "${GITHUB_REPOS[@]}"; do
@@ -356,10 +379,12 @@ jobs:
               
               # 尝试从多个GitHub仓库下载
               GITHUB_REPOS=(
-                "https://github.com/yourusername/yourrepo/raw/main/jaxb/javax.activation-api.jar"
                 "https://github.com/kivy/buildozer/raw/master/dependencies/jaxb/javax.activation-api.jar"
                 "https://github.com/microsoft/appcenter-sdk-dotnet/raw/master/nuget-packages/jaxb/javax.activation-api.jar"
                 "https://github.com/rovo89/XposedBridge/raw/master/tools/jaxb/javax.activation-api.jar"
+                "https://github.com/johnsonlee/jaxb-ri/raw/master/javax.activation-api.jar"
+                "https://github.com/kotlin/kotlinx.serialization/raw/master/third-party/jaxb/javax.activation-api.jar"
+                "https://github.com/kodein-Framework/Kodein-DB/raw/master/lib/jaxb/javax.activation-api.jar"
               )
               
               for repo in "${GITHUB_REPOS[@]}"; do

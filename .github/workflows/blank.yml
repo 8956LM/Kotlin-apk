@@ -42,11 +42,11 @@ jobs:
               echo "::warning::requirements.txt not found in repository root"
               echo "Creating minimal requirements.txt for buildozer"
               cat > requirements.txt << EOF
-buildozer
-cython
-kivy
-pillow
-EOF
+          buildozer
+          cython
+          kivy
+          pillow
+          EOF
               echo "Created minimal requirements.txt"
             fi
             

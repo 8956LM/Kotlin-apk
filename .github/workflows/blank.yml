@@ -85,6 +85,7 @@ jobs:
           components: |
             platforms;android-30
             platform-tools
+            cmdline-tools;latest
             tools
             ndk;25.2.9519653
           accept-licenses: true
@@ -203,6 +204,7 @@ jobs:
           ln -s $ANDROID_HOME/build-tools /home/runner/.buildozer/android/platform/android-sdk/build-tools
           ln -s $ANDROID_HOME/platforms /home/runner/.buildozer/android/platform/android-sdk/platforms
           ln -s $ANDROID_HOME/cmdline-tools /home/runner/.buildozer/android/platform/android-sdk/cmdline-tools
+          ln -s $ANDROID_HOME/tools /home/runner/.buildozer/android/platform/android-sdk/tools
           
           # 验证链接
           echo "Verifying symlinks:"
@@ -252,6 +254,7 @@ jobs:
             android.logcat_filters = *:S python:D
             android.gradle_dependencies = com.android.support:support-v4:27.1.1
             android.sdk_build_tools_version = 30.0.3
+            android.skip_update = True  # 防止Buildozer尝试更新SDK
           EOF
           
           cat buildozer.spec
@@ -284,6 +287,17 @@ jobs:
             echo "::error::AIDL tool not found in build tools 30.0.3"
             echo "Contents of build-tools/30.0.3:"
             ls -la $ANDROID_HOME/build-tools/30.0.3 || echo "Directory does not exist"
+            exit 1
+          fi
+          
+          echo "sdkmanager Path:"
+          if [ -f "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            echo "sdkmanager found!"
+            $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --version
+          else
+            echo "::error::sdkmanager not found"
+            echo "Available cmdline-tools:"
+            ls -la $ANDROID_HOME/cmdline-tools || echo "No cmdline-tools directory found"
             exit 1
           fi
           echo "::endgroup::"
@@ -342,6 +356,26 @@ jobs:
           
           # 确保buildozer使用系统SDK
           echo "Using system Android SDK at: $ANDROID_HOME"
+          
+          # 检查关键SDK组件
+          echo "Checking critical SDK components:"
+          if [ -f "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            echo "sdkmanager found: $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          else
+            echo "::error::sdkmanager not found"
+            exit 1
+          fi
+          
+          if [ -f "$ANDROID_HOME/build-tools/30.0.3/aidl" ]; then
+            echo "AIDL tool found: $ANDROID_HOME/build-tools/30.0.3/aidl"
+          else
+            echo "::error::AIDL tool not found"
+            exit 1
+          fi
+          
+          # 防止Buildozer尝试下载SDK
+          mkdir -p /home/runner/.buildozer/android/platform
+          touch /home/runner/.buildozer/android/platform/accept-licenses
           
           buildozer android debug --print_config_only
           

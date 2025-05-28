@@ -1,4 +1,4 @@
-name: Build Kivy APK
+name: Build Kivy APK with AIDL Debugging
 
 on:
   push:
@@ -10,26 +10,34 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive  # 包含子模块（如有）
+          fetch-depth: 0  # 获取完整的提交历史，便于调试
 
       - name: Setup Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+          cache: 'pip'  # 自动缓存 pip 依赖
 
       - name: Cache Python dependencies
         uses: actions/cache@v4
         with:
-          path: ~/.cache/pip
+          path: |
+            ~/.cache/pip
+            **/__pycache__
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      - name: Install Dependencies
+      - name: Install dependencies
         run: |
+          echo "::group::Installing dependencies"
           python -m pip install --upgrade pip
           python -m pip install buildozer cython
+          echo "::endgroup::"
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v2
@@ -38,25 +46,30 @@ jobs:
             build-tools;30.0.3
             platforms;android-30
             platform-tools
+            tools
+            ndk;25.2.9519653  # 显式指定 NDK 版本
           license-accept: true
 
       - name: Cache Android SDK
         uses: actions/cache@v4
         with:
-          path: $ANDROID_HOME
-          key: ${{ runner.os }}-android-${{ github.sha }}
+          path: |
+            $ANDROID_HOME
+            $ANDROID_HOME/cmdline-tools
+          key: ${{ runner.os }}-android-${{ hashFiles('**/buildozer.spec') }}
           restore-keys: |
             ${{ runner.os }}-android-
 
-      - name: Generate buildozer.spec dynamically
+      - name: Generate buildozer.spec (with AIDL support)
         run: |
+          echo "::group::Generating buildozer.spec"
           echo "Creating default buildozer.spec dynamically"
           
           # 创建基本的 buildozer.spec 内容
           cat > buildozer.spec << 'EOF'
             [app]
             title = Your App Title
-            package.name = your_app_name
+            package.name = your.app.name
             package.domain = com.yourdomain
             version = 1.0.0
             source.dir = .
@@ -71,71 +84,104 @@ jobs:
             orientation = portrait
             fullscreen = 0
             android.aidl_include_dirs = src/main/aidl
+            android.logcat_filters = *:S python:D
+            android.gradle_dependencies = com.android.support:support-v4:27.1.1
           EOF
           
           # 打印配置用于调试
           cat buildozer.spec
+          echo "::endgroup::"
 
-      - name: Accept Android SDK Licenses
+      - name: Validate Android SDK environment
         run: |
-          # 确认 ANDROID_HOME 环境变量
+          echo "::group::Validating Android SDK environment"
+          echo "=== ANDROID ENVIRONMENT CHECK ==="
           echo "ANDROID_HOME: $ANDROID_HOME"
-          
-          # 创建许可证目录
-          mkdir -p "$ANDROID_HOME/licenses"
-          
-          # 写入许可证文件
-          echo -e "\n8933bad161af4178b1185d1a37fbf41ea5269c8" > "$ANDROID_HOME/licenses/android-sdk-license"
-          echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
-          echo -e "\nd56f5187479451eabf01fb78af6dfcb131a6481e" > "$ANDROID_HOME/licenses/intel-android-extra-license"
-          
-          # 验证许可证文件存在
-          ls -la "$ANDROID_HOME/licenses"
-          
-          # 使用 sdkmanager 命令验证并接受许可证
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
-          
-          # 列出所有可用的 SDK 包
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --list
+          echo "SDK Tools Version:"
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --version
+          echo "Build Tools Path:"
+          ls -ld $ANDROID_HOME/build-tools/30.0.3
+          echo "AIDL Tool Path:"
+          ls -l $ANDROID_HOME/build-tools/30.0.3/aidl
+          echo "::endgroup::"
 
-      - name: Install Required Build Tools
+      - name: List project files (for debugging)
         run: |
-          # 确认 SDK 路径
-          echo "ANDROID_HOME: $ANDROID_HOME"
-          echo "PATH: $PATH"
-          
-          # 安装指定版本的 build-tools
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "build-tools;30.0.3"
-          
-          # 验证 build-tools 已安装
-          ls -la "$ANDROID_HOME/build-tools/30.0.3"
-          
-          # 验证 aidl 工具存在
-          "$ANDROID_HOME/build-tools/30.0.3/aidl" --version
+          echo "::group::Listing project files"
+          echo "=== PROJECT FILE STRUCTURE ==="
+          ls -laR .
+          echo "=== AIDL FILES FOUND ==="
+          find . -type f -name "*.aidl"
+          echo "::endgroup::"
 
-      - name: Build APK
+      - name: Accept SDK licenses (debug version)
         run: |
-          # 强制指定 SDK 路径（确保 Buildozer 使用正确的 SDK）
+          echo "::group::Accepting SDK licenses"
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list
+          echo "::endgroup::"
+
+      - name: Test AIDL tool with minimal parameters
+        run: |
+          echo "::group::Testing AIDL compiler"
+          echo "=== TESTING AIDL COMPILER ==="
+          # 替换为你的实际 AIDL 文件路径（示例路径）
+          AIDL_FILE_PATH="src/main/aidl/com/example/MyService.aidl"
+          
+          if [ -f "$AIDL_FILE_PATH" ]; then
+            echo "Compiling AIDL file: $AIDL_FILE_PATH"
+            # 基础编译命令（可根据需要添加参数）
+            $ANDROID_HOME/build-tools/30.0.3/aidl \
+              --out src/main/java \
+              --header_out src/main/cpp \
+              "$AIDL_FILE_PATH"
+            echo "AIDL compilation successful"
+          else
+            echo "WARNING: AIDL file not found at $AIDL_FILE_PATH"
+            echo "Creating sample AIDL file for testing"
+            mkdir -p src/main/aidl/com/example
+            cat > "$AIDL_FILE_PATH" << 'EOF'
+              package com.example;
+              interface MyService {
+                void basicTypes(int anInt, long aLong, boolean aBoolean);
+              }
+            EOF
+            echo "Sample AIDL file created"
+          fi
+          echo "::endgroup::"
+
+      - name: Build APK (with debug logs)
+        run: |
+          echo "::group::Building APK"
+          echo "=== STARTING APK BUILD ==="
           export ANDROID_SDK_ROOT=$ANDROID_HOME
+          export BUILDOZER_DEBUG=1  # 启用 Buildozer 调试模式
           
-          # 验证环境变量
-          echo "ANDROID_HOME: $ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT: $ANDROID_SDK_ROOT"
-          
-          # 确保 aidl 目录存在
-          mkdir -p src/main/aidl
-          
-          # 列出 aidl 文件（如果有）
-          echo "AIDL files:"
-          find src/main/aidl -name "*.aidl"
+          # 检查 buildozer 配置
+          buildozer android debug --print_config_only
           
           # 构建 APK
-          buildozer -v android debug
-          mkdir artifacts
-          cp bin/*.apk artifacts/
+          buildozer -v android debug || { 
+            echo "::error::APK build failed"
+            # 输出详细的错误信息
+            cat bin/buildozer.log
+            exit 1
+          }
+          
+          # 检查 APK 是否生成
+          if [ -f bin/*.apk ]; then
+            echo "APK successfully built"
+            mkdir -p artifacts
+            cp bin/*.apk artifacts/
+          else
+            echo "::error::No APK found after build"
+            exit 1
+          fi
+          echo "::endgroup::"
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: kivy-apk
           path: artifacts/
+          retention-days: 7  # 保留7天

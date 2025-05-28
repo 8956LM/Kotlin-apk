@@ -15,15 +15,12 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
-          # 添加路径参数确保检出到正确目录
           path: ./repo
 
       - name: Setup Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          # 移除自动缓存，使用自定义缓存逻辑
-          # cache: 'pip'
 
       - name: Validate project files
         run: |
@@ -32,30 +29,27 @@ jobs:
           echo "Contents of current directory:"
           ls -la
           
-          # 检查仓库目录是否存在
           if [ -d "./repo" ]; then
             echo "Repository checked out to ./repo"
             cd ./repo
             echo "Contents of repository:"
             ls -la
             
-            # 检查 requirements.txt 是否存在
             if [ -f "requirements.txt" ]; then
-              echo "requirements.txt found"
-              cat requirements.txt
+                echo "requirements.txt found"
+                cat requirements.txt
             else
-              echo "::warning::requirements.txt not found in repository root"
-              echo "Creating minimal requirements.txt for buildozer"
-              cat > requirements.txt << EOF
+                echo "::warning::requirements.txt not found in repository root"
+                echo "Creating minimal requirements.txt for buildozer"
+                cat > requirements.txt << EOF
 buildozer
 cython
 kivy
 pillow
 EOF
-              echo "Created minimal requirements.txt"
+                echo "Created minimal requirements.txt"
             fi
             
-            # 检查 buildozer.spec 是否存在
             if [ -f "buildozer.spec" ]; then
               echo "buildozer.spec found"
             else
@@ -73,7 +67,6 @@ EOF
           path: |
             ~/.cache/pip
             **/__pycache__
-          # 使用当前时间戳作为缓存键，确保每次都能继续执行
           key: ${{ runner.os }}-pip-${{ github.run_id }}
           restore-keys: |
             ${{ runner.os }}-pip-
@@ -113,7 +106,6 @@ EOF
           cd ./repo
           echo "Creating default buildozer.spec dynamically"
           
-          # 创建基本的 buildozer.spec 内容
           cat > buildozer.spec << 'EOF'
             [app]
             title = Your App Title
@@ -136,7 +128,6 @@ EOF
             android.gradle_dependencies = com.android.support:support-v4:27.1.1
           EOF
           
-          # 打印配置用于调试
           cat buildozer.spec
           echo "::endgroup::"
 
@@ -177,12 +168,10 @@ EOF
           echo "::group::Testing AIDL compiler"
           cd ./repo
           echo "=== TESTING AIDL COMPILER ==="
-          # 替换为你的实际 AIDL 文件路径（示例路径）
           AIDL_FILE_PATH="src/main/aidl/com/example/MyService.aidl"
           
           if [ -f "$AIDL_FILE_PATH" ]; then
             echo "Compiling AIDL file: $AIDL_FILE_PATH"
-            # 基础编译命令（可根据需要添加参数）
             $ANDROID_HOME/build-tools/30.0.3/aidl \
               --out src/main/java \
               --header_out src/main/cpp \
@@ -210,18 +199,14 @@ EOF
           export ANDROID_SDK_ROOT=$ANDROID_HOME
           export BUILDOZER_DEBUG=1
           
-          # 检查 buildozer 配置
           buildozer android debug --print_config_only
           
-          # 构建 APK
           buildozer -v android debug || { 
             echo "::error::APK build failed"
-            # 输出详细的错误信息
             cat bin/buildozer.log
             exit 1
           }
           
-          # 检查 APK 是否生成
           if [ -f bin/*.apk ]; then
             echo "APK successfully built"
             mkdir -p artifacts

@@ -254,7 +254,8 @@ jobs:
             android.logcat_filters = *:S python:D
             android.gradle_dependencies = com.android.support:support-v4:27.1.1
             android.sdk_build_tools_version = 30.0.3
-            android.skip_update = True  # 防止Buildozer尝试更新SDK
+            android.skip_update = True
+            # 防止Buildozer尝试更新SDK (注释放在单独一行)
           EOF
           
           cat buildozer.spec

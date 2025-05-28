@@ -105,6 +105,8 @@ jobs:
           PRIMARY_MAVEN_REPO="https://repo1.maven.org/maven2"
           ALTERNATE_MAVEN_REPO="https://maven-central.storage-download.googleapis.com/maven2"
           JCENTER_REPO="https://jcenter.bintray.com"
+          MAVEN_ORG_MIRROR="https://repo.maven.apache.org/maven2"
+          GITHUB_MAVEN="https://maven.pkg.github.com"
           
           # 下载JAXB核心依赖（增加更多下载源和错误处理）
           MAX_RETRIES=3
@@ -120,11 +122,27 @@ jobs:
             
             while [ $attempts -lt $MAX_RETRIES ]; do
               echo "Downloading $file_name (attempt $((attempts+1))/$MAX_RETRIES)..."
+              
+              # 尝试使用wget下载
               wget -q "$base_url/$artifact_path" -O "$file_name"
               
+              # 检查下载是否成功
               if [ $? -eq 0 ] && [ -s "$file_name" ]; then
-                echo "Successfully downloaded $file_name"
-                return 0
+                # 验证文件完整性（简单检查）
+                if [[ "$file_name" == *.jar ]]; then
+                  # 尝试列出JAR文件内容来验证
+                  jar -tf "$file_name" > /dev/null 2>&1
+                  if [ $? -eq 0 ]; then
+                    echo "Successfully downloaded and verified $file_name"
+                    return 0
+                  else
+                    echo "Downloaded file $file_name is corrupted. Retrying..."
+                    rm -f "$file_name"
+                  fi
+                else
+                  echo "Successfully downloaded $file_name"
+                  return 0
+                fi
               fi
               
               attempts=$((attempts+1))
@@ -141,24 +159,60 @@ jobs:
             local file_name=$2
             
             # 尝试从主要Maven仓库下载
+            echo "=== ATTEMPTING PRIMARY MAVEN REPOSITORIES ==="
             download_with_retry "$PRIMARY_MAVEN_REPO" "$artifact_path" "$file_name"
             if [ $? -eq 0 ]; then
               return 0
             fi
             
-            # 尝试从替代Maven仓库下载
-            echo "Falling back to alternate Maven repository..."
             download_with_retry "$ALTERNATE_MAVEN_REPO" "$artifact_path" "$file_name"
             if [ $? -eq 0 ]; then
               return 0
             fi
             
+            download_with_retry "$MAVEN_ORG_MIRROR" "$artifact_path" "$file_name"
+            if [ $? -eq 0 ]; then
+              return 0
+            fi
+            
             # 尝试从JCenter下载
-            echo "Falling back to JCenter repository..."
+            echo "=== ATTEMPTING JCENTER ==="
             download_with_retry "$JCENTER_REPO" "$artifact_path" "$file_name"
             if [ $? -eq 0 ]; then
               return 0
             fi
+            
+            # 尝试从GitHub Maven下载（需要身份验证）
+            echo "=== ATTEMPTING GITHUB MAVEN ==="
+            if [ -n "$GITHUB_TOKEN" ]; then
+              echo "Using GitHub token for authentication"
+              wget -q --header="Authorization: token $GITHUB_TOKEN" \
+                "$GITHUB_MAVEN/$artifact_path" -O "$file_name"
+              
+              if [ $? -eq 0 ] && [ -s "$file_name" ]; then
+                echo "Successfully downloaded $file_name from GitHub Maven"
+                return 0
+              fi
+            else
+              echo "GitHub token not available. Skipping GitHub Maven repository."
+            fi
+            
+            # 尝试从镜像站点下载
+            echo "=== ATTEMPTING MIRROR SITES ==="
+            MIRROR_SITES=(
+              "https://maven.aliyun.com/repository/central"
+              "https://repo.spring.io/libs-release"
+              "https://repo.spring.io/plugins-release"
+              "https://oss.sonatype.org/content/repositories/releases"
+            )
+            
+            for mirror in "${MIRROR_SITES[@]}"; do
+              echo "Trying mirror site: $mirror"
+              download_with_retry "$mirror" "$artifact_path" "$file_name"
+              if [ $? -eq 0 ]; then
+                return 0
+              fi
+            done
             
             # 所有下载源都失败
             echo "::error::Failed to download $file_name from all available repositories"
@@ -182,10 +236,33 @@ jobs:
               cp ~/jaxb_backup/jaxb-api.jar ./
             else
               echo "Trying to download from GitHub repository..."
-              wget -q "https://github.com/yourusername/yourrepo/raw/main/jaxb/jaxb-api.jar" -O "jaxb-api.jar" || {
+              
+              # 尝试从多个GitHub仓库下载
+              GITHUB_REPOS=(
+                "https://github.com/yourusername/yourrepo/raw/main/jaxb/jaxb-api.jar"
+                "https://github.com/kivy/buildozer/raw/master/dependencies/jaxb/jaxb-api.jar"
+                "https://github.com/microsoft/appcenter-sdk-dotnet/raw/master/nuget-packages/jaxb/jaxb-api.jar"
+                "https://github.com/rovo89/XposedBridge/raw/master/tools/jaxb/jaxb-api.jar"
+              )
+              
+              for repo in "${GITHUB_REPOS[@]}"; do
+                echo "Trying GitHub repository: $repo"
+                wget -q "$repo" -O "jaxb-api.jar"
+                
+                if [ $? -eq 0 ] && [ -s "jaxb-api.jar" ]; then
+                  echo "Successfully downloaded jaxb-api.jar from GitHub repository"
+                  break
+                fi
+                
+                echo "Download from $repo failed. Trying next repository..."
+                rm -f "jaxb-api.jar"
+              done
+              
+              # 检查是否从GitHub成功下载
+              if [ ! -f "jaxb-api.jar" ]; then
                 echo "::error::All methods failed to download jaxb-api.jar"
                 exit 1
-              }
+              fi
             fi
           }
           
@@ -198,10 +275,33 @@ jobs:
               cp ~/jaxb_backup/jaxb-core.jar ./
             else
               echo "Trying to download from GitHub repository..."
-              wget -q "https://github.com/yourusername/yourrepo/raw/main/jaxb/jaxb-core.jar" -O "jaxb-core.jar" || {
+              
+              # 尝试从多个GitHub仓库下载
+              GITHUB_REPOS=(
+                "https://github.com/yourusername/yourrepo/raw/main/jaxb/jaxb-core.jar"
+                "https://github.com/kivy/buildozer/raw/master/dependencies/jaxb/jaxb-core.jar"
+                "https://github.com/microsoft/appcenter-sdk-dotnet/raw/master/nuget-packages/jaxb/jaxb-core.jar"
+                "https://github.com/rovo89/XposedBridge/raw/master/tools/jaxb/jaxb-core.jar"
+              )
+              
+              for repo in "${GITHUB_REPOS[@]}"; do
+                echo "Trying GitHub repository: $repo"
+                wget -q "$repo" -O "jaxb-core.jar"
+                
+                if [ $? -eq 0 ] && [ -s "jaxb-core.jar" ]; then
+                  echo "Successfully downloaded jaxb-core.jar from GitHub repository"
+                  break
+                fi
+                
+                echo "Download from $repo failed. Trying next repository..."
+                rm -f "jaxb-core.jar"
+              done
+              
+              # 检查是否从GitHub成功下载
+              if [ ! -f "jaxb-core.jar" ]; then
                 echo "::error::All methods failed to download jaxb-core.jar"
                 exit 1
-              }
+              fi
             fi
           }
           
@@ -214,10 +314,33 @@ jobs:
               cp ~/jaxb_backup/jaxb-impl.jar ./
             else
               echo "Trying to download from GitHub repository..."
-              wget -q "https://github.com/yourusername/yourrepo/raw/main/jaxb/jaxb-impl.jar" -O "jaxb-impl.jar" || {
+              
+              # 尝试从多个GitHub仓库下载
+              GITHUB_REPOS=(
+                "https://github.com/yourusername/yourrepo/raw/main/jaxb/jaxb-impl.jar"
+                "https://github.com/kivy/buildozer/raw/master/dependencies/jaxb/jaxb-impl.jar"
+                "https://github.com/microsoft/appcenter-sdk-dotnet/raw/master/nuget-packages/jaxb/jaxb-impl.jar"
+                "https://github.com/rovo89/XposedBridge/raw/master/tools/jaxb/jaxb-impl.jar"
+              )
+              
+              for repo in "${GITHUB_REPOS[@]}"; do
+                echo "Trying GitHub repository: $repo"
+                wget -q "$repo" -O "jaxb-impl.jar"
+                
+                if [ $? -eq 0 ] && [ -s "jaxb-impl.jar" ]; then
+                  echo "Successfully downloaded jaxb-impl.jar from GitHub repository"
+                  break
+                fi
+                
+                echo "Download from $repo failed. Trying next repository..."
+                rm -f "jaxb-impl.jar"
+              done
+              
+              # 检查是否从GitHub成功下载
+              if [ ! -f "jaxb-impl.jar" ]; then
                 echo "::error::All methods failed to download jaxb-impl.jar"
                 exit 1
-              }
+              fi
             fi
           }
           
@@ -230,11 +353,47 @@ jobs:
               cp ~/jaxb_backup/javax.activation-api.jar ./
             else
               echo "Trying to download from GitHub repository..."
-              wget -q "https://github.com/yourusername/yourrepo/raw/main/jaxb/javax.activation-api.jar" -O "javax.activation-api.jar" || {
+              
+              # 尝试从多个GitHub仓库下载
+              GITHUB_REPOS=(
+                "https://github.com/yourusername/yourrepo/raw/main/jaxb/javax.activation-api.jar"
+                "https://github.com/kivy/buildozer/raw/master/dependencies/jaxb/javax.activation-api.jar"
+                "https://github.com/microsoft/appcenter-sdk-dotnet/raw/master/nuget-packages/jaxb/javax.activation-api.jar"
+                "https://github.com/rovo89/XposedBridge/raw/master/tools/jaxb/javax.activation-api.jar"
+              )
+              
+              for repo in "${GITHUB_REPOS[@]}"; do
+                echo "Trying GitHub repository: $repo"
+                wget -q "$repo" -O "javax.activation-api.jar"
+                
+                if [ $? -eq 0 ] && [ -s "javax.activation-api.jar" ]; then
+                  echo "Successfully downloaded javax.activation-api.jar from GitHub repository"
+                  break
+                fi
+                
+                echo "Download from $repo failed. Trying next repository..."
+                rm -f "javax.activation-api.jar"
+              done
+              
+              # 检查是否从GitHub成功下载
+              if [ ! -f "javax.activation-api.jar" ]; then
                 echo "::error::All methods failed to download javax.activation-api.jar"
                 exit 1
-              }
+              fi
             fi
+          }
+          
+          # 下载额外的JAXB依赖（如果需要）
+          echo "Downloading additional JAXB dependencies..."
+          
+          # 下载jaxb-xjc
+          download_from_any_source "com/sun/xml/bind/jaxb-xjc/${JAXB_VERSION}/jaxb-xjc-${JAXB_VERSION}.jar" "jaxb-xjc.jar" || {
+            echo "Warning: Failed to download jaxb-xjc.jar. This might not be critical."
+          }
+          
+          # 下载jaxb-jxc
+          download_from_any_source "com/sun/xml/bind/jaxb-jxc/${JAXB_VERSION}/jaxb-jxc-${JAXB_VERSION}.jar" "jaxb-jxc.jar" || {
+            echo "Warning: Failed to download jaxb-jxc.jar. This might not be critical."
           }
           
           # 创建JAXB类路径
@@ -244,6 +403,11 @@ jobs:
           # 验证JAXB安装
           echo "JAXB dependencies installed:"
           ls -la ~/jaxb
+          
+          # 保存JAXB依赖到缓存目录
+          mkdir -p ~/.cache/jaxb
+          cp ~/jaxb/*.jar ~/.cache/jaxb/
+          echo "JAXB dependencies cached in ~/.cache/jaxb"
           echo "::endgroup::"
 
       - name: Force accept all Android SDK licenses

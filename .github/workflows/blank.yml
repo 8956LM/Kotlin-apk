@@ -97,9 +97,16 @@ jobs:
           echo "84831b9409646a918e30573bab4c9c91346d8abd" > $ANDROID_HOME/licenses/android-sdk-preview-license
           echo "d56f5187479451eabf01fb78af6dfcb131a6481e" > $ANDROID_HOME/licenses/intel-android-extra-license
           
+          # 额外接受Build-Tools 36.0.0的许可证
+          echo "8933bad161af4178b1185d1a37fbf41ea5269c5" > $ANDROID_HOME/licenses/android-sdk-license
+          
           # 验证许可证是否正确设置
           echo "Verifying license acceptance:"
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          
+          # 安装可能缺少的组件
+          echo "Installing additional Android SDK components..."
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;30.0.3" "platforms;android-30"
           echo "::endgroup::"
 
       - name: Validate ANDROID_HOME environment variable
@@ -188,6 +195,20 @@ jobs:
           fi
           echo "::endgroup::"
 
+      - name: Create symlink for Buildozer cache
+        run: |
+          echo "::group::Creating symlink for Buildozer cache"
+          # 创建Buildozer期望的目录结构
+          mkdir -p /home/runner/.buildozer/android/platform/android-sdk
+          ln -s $ANDROID_HOME/build-tools /home/runner/.buildozer/android/platform/android-sdk/build-tools
+          ln -s $ANDROID_HOME/platforms /home/runner/.buildozer/android/platform/android-sdk/platforms
+          ln -s $ANDROID_HOME/cmdline-tools /home/runner/.buildozer/android/platform/android-sdk/cmdline-tools
+          
+          # 验证链接
+          echo "Verifying symlinks:"
+          ls -la /home/runner/.buildozer/android/platform/android-sdk
+          echo "::endgroup::"
+
       - name: List installed Android components
         run: |
           echo "::group::Installed Android components"
@@ -224,7 +245,7 @@ jobs:
             android.minapi = 23
             android.sdk = 30
             android.ndk = 25c
-            android.arch = armeabi-v7a
+            android.archs = armeabi-v7a
             orientation = portrait
             fullscreen = 0
             android.aidl_include_dirs = src/main/aidl
@@ -314,8 +335,13 @@ jobs:
           echo "::group::Building APK"
           cd ./repo
           echo "=== STARTING APK BUILD ==="
+          # 设置环境变量指向系统安装的SDK
           export ANDROID_SDK_ROOT=$ANDROID_HOME
+          export ANDROID_HOME=$ANDROID_HOME
           export BUILDOZER_DEBUG=1
+          
+          # 确保buildozer使用系统SDK
+          echo "Using system Android SDK at: $ANDROID_HOME"
           
           buildozer android debug --print_config_only
           

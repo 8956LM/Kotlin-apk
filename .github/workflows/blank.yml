@@ -42,11 +42,11 @@ jobs:
               echo "::warning::requirements.txt not found in repository root"
               echo "Creating minimal requirements.txt for buildozer"
               cat > requirements.txt << EOF
-          buildozer
-          cython
-          kivy
-          pillow
-          EOF
+buildozer
+cython
+kivy
+pillow
+EOF
               echo "Created minimal requirements.txt"
             fi
             
@@ -79,80 +79,26 @@ jobs:
           python -m pip install buildozer cython
           echo "::endgroup::"
 
-      - name: Setup Android SDK (Google官方)
-        uses: google-github-actions/setup-android-sdk@v2
+      - name: Setup Android SDK (Google官方操作)
+        uses: google/setup-android@v3  # 替换为最新官方操作
         with:
-          build-tools-version: 30.0.3
-          platform-version: 30
+          android_version: 30            # Android 10 (API 30)
+          build_tools_version: 30.0.3    # 指定旧版Build-Tools
           licenses: |
-            android-sdk-license.*
+            android-sdk-license.*        # 自动接受许可证
           components: |
-            platform-tools
-            tools
-
-      - name: Validate build-tools installation
-        run: |
-          echo "=== INSTALLED BUILD TOOLS ==="
-          ls -la $ANDROID_HOME/build-tools/30.0.3/aidl
-          $ANDROID_HOME/build-tools/30.0.3/aidl --version
-
-      - name: Force accept all Android SDK licenses
-        run: |
-          echo "::group::Force accepting all Android SDK licenses"
-          mkdir -p $ANDROID_HOME/licenses
-          echo "24333f8a63b6825ea9c5514f83c2829b004d1e9" > $ANDROID_HOME/licenses/android-sdk-license
-          echo "84831b9409646a918e30573bab4c9c91346d8abd" > $ANDROID_HOME/licenses/android-sdk-preview-license
-          echo "d56f5187479451eabf01fb78af6dfcb131a6481e" > $ANDROID_HOME/licenses/intel-android-extra-license
-          
-          # 验证许可证是否正确设置
-          echo "Verifying license acceptance:"
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
-          echo "::endgroup::"
+            platform-tools               # 必选组件
+            tools                        # 必选工具
+            ndk;25.2.9519653            # 指定NDK版本
 
       - name: Validate ANDROID_HOME environment variable
         run: |
           echo "::group::Validating ANDROID_HOME environment variable"
-          echo "Expected ANDROID_HOME path: $ANDROID_HOME"
-          echo "Actual ANDROID_HOME path: $ANDROID_HOME"
+          echo "ANDROID_HOME: $ANDROID_HOME"
           if [ -z "$ANDROID_HOME" ]; then
-            echo "::error::ANDROID_HOME environment variable is not set"
+            echo "::error::ANDROID_HOME is not set"
             exit 1
           fi
-          echo "::endgroup::"
-
-      - name: List available Android SDK components
-        run: |
-          echo "::group::Available Android SDK components"
-          echo "SDK Manager version:"
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --version
-          
-          echo "Available build tools:"
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list | grep build-tools
-          
-          echo "Available platforms:"
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list | grep platforms
-          
-          echo "SDK directory structure:"
-          ls -laR $ANDROID_HOME
-          echo "::endgroup::"
-
-      - name: Re-install build-tools;30.0.3
-        run: |
-          echo "::group::Re-installing build-tools;30.0.3"
-          echo "sdkmanager version:"
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --version
-          
-          echo "Checking existing build tools:"
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list | grep build-tools
-          
-          echo "Installing build-tools;30.0.3"
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;30.0.3" --verbose
-          
-          echo "Verifying installation:"
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list | grep build-tools
-          
-          echo "Checking build-tools directory:"
-          ls -la $ANDROID_HOME/build-tools
           echo "::endgroup::"
 
       - name: List installed Android components
@@ -161,22 +107,10 @@ jobs:
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list
           echo "::endgroup::"
 
-      - name: Cache Android SDK
-        uses: actions/cache@v4
-        with:
-          path: |
-            $ANDROID_HOME
-            $ANDROID_HOME/cmdline-tools
-          key: ${{ runner.os }}-android-${{ github.run_id }}
-          restore-keys: |
-            ${{ runner.os }}-android-
-
       - name: Generate buildozer.spec (with AIDL support)
         run: |
           echo "::group::Generating buildozer.spec"
           cd ./repo
-          echo "Creating default buildozer.spec dynamically"
-          
           cat > buildozer.spec << 'EOF'
             [app]
             title = Your App Title
@@ -187,9 +121,9 @@ jobs:
             source.include_exts = py,png,jpg,kv,atlas,ttf,aidl
             requirements = python3,kivy,pillow
             android.permissions = INTERNET,READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE,CAMERA
-            android.api = 30
+            android.api = 30             # 与SDK版本一致
             android.minapi = 23
-            android.sdk = 30
+            android.sdk = 30             # 与SDK版本一致
             android.ndk = 25c
             android.arch = armeabi-v7a
             orientation = portrait
@@ -197,9 +131,8 @@ jobs:
             android.aidl_include_dirs = src/main/aidl
             android.logcat_filters = *:S python:D
             android.gradle_dependencies = com.android.support:support-v4:27.1.1
-            android.sdk_build_tools_version = 30.0.3
+            android.sdk_build_tools_version = 30.0.3  # 明确指定Build-Tools版本
           EOF
-          
           cat buildozer.spec
           echo "::endgroup::"
 
@@ -208,84 +141,49 @@ jobs:
           echo "::group::Validating Android SDK environment"
           echo "=== ANDROID ENVIRONMENT CHECK ==="
           echo "ANDROID_HOME: $ANDROID_HOME"
-          echo "SDK Tools Version:"
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --version
-          
           echo "Build Tools Path:"
-          if [ -d "$ANDROID_HOME/build-tools/30.0.3" ]; then
-            echo "Build tools 30.0.3 found!"
-            ls -la $ANDROID_HOME/build-tools/30.0.3
-          else
+          ls -ld $ANDROID_HOME/build-tools/30.0.3 || {
             echo "::error::Build tools 30.0.3 not found"
-            echo "Available build tools:"
-            ls -la $ANDROID_HOME/build-tools || echo "No build tools directory found"
             exit 1
-          fi
-          
+          }
           echo "AIDL Tool Path:"
-          if [ -f "$ANDROID_HOME/build-tools/30.0.3/aidl" ]; then
-            echo "AIDL tool found!"
-            $ANDROID_HOME/build-tools/30.0.3/aidl --version || echo "AIDL version check failed"
-          else
-            echo "::error::AIDL tool not found in build tools 30.0.3"
-            echo "Contents of build-tools/30.0.3:"
-            ls -la $ANDROID_HOME/build-tools/30.0.3 || echo "Directory does not exist"
+          ls -l $ANDROID_HOME/build-tools/30.0.3/aidl || {
+            echo "::error::AIDL tool not found"
             exit 1
-          fi
-          echo "::endgroup::"
-
-      - name: List project files (for debugging)
-        run: |
-          echo "::group::Listing project files"
-          cd ./repo
-          echo "=== PROJECT FILE STRUCTURE ==="
-          ls -laR .
-          echo "=== AIDL FILES FOUND ==="
-          find . -type f -name "*.aidl"
+          }
           echo "::endgroup::"
 
       - name: Test AIDL tool with minimal parameters
         run: |
           echo "::group::Testing AIDL compiler"
           cd ./repo
-          echo "=== TESTING AIDL COMPILER ==="
           AIDL_FILE_PATH="src/main/aidl/com/example/MyService.aidl"
           
-          if [ -f "$AIDL_FILE_PATH" ]; then
-            echo "Compiling AIDL file: $AIDL_FILE_PATH"
-            $ANDROID_HOME/build-tools/30.0.3/aidl \
-              --out src/main/java \
-              --header_out src/main/cpp \
-              "$AIDL_FILE_PATH" || {
-              echo "::error::AIDL compilation failed"
-              exit 1
-            }
-            echo "AIDL compilation successful"
-          else
-            echo "WARNING: AIDL file not found at $AIDL_FILE_PATH"
-            echo "Creating sample AIDL file for testing"
+          if [ ! -f "$AIDL_FILE_PATH" ]; then
+            echo "Creating sample AIDL file"
             mkdir -p src/main/aidl/com/example
-            
-            # 使用 tee 命令替代 heredoc
-            echo "package com.example;" > "$AIDL_FILE_PATH"
-            echo "interface MyService {" >> "$AIDL_FILE_PATH"
-            echo "  void basicTypes(int anInt, long aLong, boolean aBoolean);" >> "$AIDL_FILE_PATH"
-            echo "}" >> "$AIDL_FILE_PATH"
-            
-            echo "Sample AIDL file created"
+            echo "package com.example;\ninterface MyService { void basicTypes(int anInt, long aLong, boolean aBoolean); }" > "$AIDL_FILE_PATH"
           fi
+          
+          echo "Compiling AIDL file: $AIDL_FILE_PATH"
+          $ANDROID_HOME/build-tools/30.0.3/aidl \
+            --out src/main/java \
+            --header_out src/main/cpp \
+            "$AIDL_FILE_PATH" || {
+            echo "::error::AIDL compilation failed"
+            exit 1
+          }
+          echo "AIDL compilation successful"
           echo "::endgroup::"
 
       - name: Build APK (with debug logs)
         run: |
           echo "::group::Building APK"
           cd ./repo
-          echo "=== STARTING APK BUILD ==="
           export ANDROID_SDK_ROOT=$ANDROID_HOME
           export BUILDOZER_DEBUG=1
           
           buildozer android debug --print_config_only
-          
           buildozer -v android debug || { 
             echo "::error::APK build failed"
             cat bin/buildozer.log
@@ -299,7 +197,7 @@ jobs:
           else
             echo "::error::No APK found after build"
             exit 1
-          fi
+          }
           echo "::endgroup::"
 
       - name: Upload APK artifact

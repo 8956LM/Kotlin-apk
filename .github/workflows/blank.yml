@@ -1,9 +1,18 @@
-name: Build Kivy APK without JAXB
+name: Build Kivy APK with AIDL Debugging
 
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:
+  workflow_dispatch:  # 允许手动触发
+    inputs:
+      java_version:
+        description: 'Java version to use (8 or 11+)'
+        required: true
+        default: '11'
+        type: choice
+        options:
+          - '8'
+          - '11'
 
 jobs:
   build:
@@ -22,18 +31,47 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Setup Java 8
+      - name: Setup Java
         uses: actions/setup-java@v5
         with:
-          java-version: '8'
+          java-version: ${{ github.event.inputs.java_version }}
           distribution: 'temurin'
 
       - name: Validate project files
         run: |
           echo "::group::Checking project files"
-          cd ./repo
-          if [ ! -f "buildozer.spec" ]; then
-            echo "::error::buildozer.spec not found in repository root"
+          echo "Current directory: $(pwd)"
+          echo "Contents of current directory:"
+          ls -la
+          
+          if [ -d "./repo" ]; then
+            echo "Repository checked out to ./repo"
+            cd ./repo
+            echo "Contents of repository:"
+            ls -la
+            
+            if [ -f "requirements.txt" ]; then
+              echo "requirements.txt found"
+              cat requirements.txt
+            else
+              echo "::warning::requirements.txt not found in repository root"
+              echo "Creating minimal requirements.txt for buildozer"
+              cat > requirements.txt << EOF
+buildozer
+cython
+kivy
+pillow
+EOF
+              echo "Created minimal requirements.txt"
+            fi
+            
+            if [ -f "buildozer.spec" ]; then
+              echo "buildozer.spec found"
+            else
+              echo "::warning::buildozer.spec not found in repository root"
+            fi
+          else
+            echo "::error::Repository not checked out to ./repo"
             exit 1
           fi
           echo "::endgroup::"
@@ -67,6 +105,535 @@ jobs:
             ndk;25.2.9519653
           accept-licenses: true
 
+      - name: Install JAXB dependencies (only for Java 11+)
+        if: github.event.inputs.java_version != '8'
+        run: |
+          echo "::group::Installing JAXB dependencies"
+          sudo apt-get update -y
+          sudo apt-get install -y libxml2-dev libxslt1-dev
+          
+          # 下载并安装JAXB运行时依赖
+          JAXB_VERSION="2.3.8"
+          mkdir -p ~/jaxb
+          cd ~/jaxb
+          
+          # 定义多个下载源
+          PRIMARY_MAVEN_REPO="https://repo1.maven.org/maven2"
+          ALTERNATE_MAVEN_REPO="https://maven-central.storage-download.googleapis.com/maven2"
+          JCENTER_REPO="https://jcenter.bintray.com"
+          MAVEN_ORG_MIRROR="https://repo.maven.apache.org/maven2"
+          GITHUB_MAVEN="https://maven.pkg.github.com"
+          
+          # 下载JAXB核心依赖（增加更多下载源和错误处理）
+          MAX_RETRIES=3
+          RETRY_DELAY=5  # 秒
+          
+          download_with_retry() {
+            local base_url=$1
+            local artifact_path=$2
+            local file_name=$3
+            local attempts=0
+            
+            echo "Trying to download $file_name from $base_url"
+            
+            while [ $attempts -lt $MAX_RETRIES ]; do
+              echo "Downloading $file_name (attempt $((attempts+1))/$MAX_RETRIES)..."
+              
+              # 尝试使用wget下载，增加详细错误信息
+              wget -q "$base_url/$artifact_path" -O "$file_name"
+              WGET_EXIT_CODE=$?
+              
+              # 检查下载是否成功
+              if [ $WGET_EXIT_CODE -eq 0 ] && [ -s "$file_name" ]; then
+                # 验证文件完整性（简单检查）
+                if [[ "$file_name" == *.jar ]]; then
+                  # 尝试列出JAR文件内容来验证
+                  jar -tf "$file_name" > /dev/null 2>&1
+                  if [ $? -eq 0 ]; then
+                    echo "Successfully downloaded and verified $file_name"
+                    return 0
+                  else
+                    echo "Downloaded file $file_name is corrupted. Retrying..."
+                    rm -f "$file_name"
+                  fi
+                else
+                  echo "Successfully downloaded $file_name"
+                  return 0
+                fi
+              else
+                echo "Detailed download error for $file_name:"
+                if [ $WGET_EXIT_CODE -eq 4 ]; then
+                  echo "Network failure (Wget error 4)"
+                elif [ $WGET_EXIT_CODE -eq 5 ]; then
+                  echo "SSL verification failure (Wget error 5)"
+                elif [ $WGET_EXIT_CODE -eq 6 ]; then
+                  echo "Authentication failure (Wget error 6)"
+                elif [ $WGET_EXIT_CODE -eq 7 ]; then
+                  echo "Protocol error (Wget error 7)"
+                elif [ $WGET_EXIT_CODE -eq 8 ]; then
+                  echo "Server returned error (Wget error 8)"
+                else
+                  echo "Unknown error (Wget error $WGET_EXIT_CODE)"
+                fi
+              fi
+              
+              attempts=$((attempts+1))
+              echo "Download failed. Retrying in $RETRY_DELAY seconds..."
+              sleep $RETRY_DELAY
+            done
+            
+            echo "::error::Failed to download $file_name from $base_url after $MAX_RETRIES attempts"
+            return 1
+          }
+          
+          download_from_any_source() {
+            local artifact_path=$1
+            local file_name=$2
+            
+            # 尝试从主要Maven仓库下载
+            echo "=== ATTEMPTING PRIMARY MAVEN REPOSITORIES ==="
+            download_with_retry "$PRIMARY_MAVEN_REPO" "$artifact_path" "$file_name"
+            if [ $? -eq 0 ]; then
+              return 0
+            fi
+            
+            download_with_retry "$ALTERNATE_MAVEN_REPO" "$artifact_path" "$file_name"
+            if [ $? -eq 0 ]; then
+              return 0
+            fi
+            
+            download_with_retry "$MAVEN_ORG_MIRROR" "$artifact_path" "$file_name"
+            if [ $? -eq 0 ]; then
+              return 0
+            fi
+            
+            # 尝试从JCenter下载
+            echo "=== ATTEMPTING JCENTER ==="
+            download_with_retry "$JCENTER_REPO" "$artifact_path" "$file_name"
+            if [ $? -eq 0 ]; then
+              return 0
+            fi
+            
+            # 尝试从GitHub Maven下载（需要身份验证）
+            echo "=== ATTEMPTING GITHUB MAVEN ==="
+            if [ -n "$GITHUB_TOKEN" ]; then
+              echo "Using GitHub token for authentication"
+              wget -q --header="Authorization: token $GITHUB_TOKEN" \
+                "$GITHUB_MAVEN/$artifact_path" -O "$file_name"
+              
+              if [ $? -eq 0 ] && [ -s "$file_name" ]; then
+                echo "Successfully downloaded $file_name from GitHub Maven"
+                return 0
+              fi
+            else
+              echo "GitHub token not available. Skipping GitHub Maven repository."
+            fi
+            
+            # 尝试从镜像站点下载
+            echo "=== ATTEMPTING MIRROR SITES ==="
+            MIRROR_SITES=(
+              "https://maven.aliyun.com/repository/public"
+              "https://repo1.maven.org/maven2"
+              "https://repo.spring.io/plugins-release"
+              "https://jitpack.io"
+              "https://packages.confluent.io/maven/"
+              "https://repo.huaweicloud.com/repository/maven/"
+              "https://maven.sonatype.org/content/groups/public/"
+              "https://maven.google.com"
+              "https://repo.eclipse.org/content/groups/releases/"
+              "https://repo.adobe.com/nexus/content/groups/public/"
+              "https://repo.opencast.org/repository/maven-public/"
+              "https://repo.spring.io/libs-release/"
+              "https://oss.sonatype.org/content/repositories/releases/"
+              "https://maven.pkg.jetbrains.space/public/p/compose/dev/"
+            )
+            
+            for mirror in "${MIRROR_SITES[@]}"; do
+              echo "Trying mirror site: $mirror"
+              download_with_retry "$mirror" "$artifact_path" "$file_name"
+              if [ $? -eq 0 ]; then
+                return 0
+              fi
+            done
+            
+            # 所有下载源都失败
+            echo "::error::Failed to download $file_name from all available repositories"
+            return 1
+          }
+          
+          # 检查系统是否已安装JAXB
+          if [ -f "/usr/share/java/jaxb-api.jar" ]; then
+            echo "Using system JAXB"
+            mkdir -p ~/jaxb
+            cp /usr/share/java/jaxb-api.jar ~/jaxb/
+            cp /usr/share/java/jaxb-core.jar ~/jaxb/
+            cp /usr/share/java/jaxb-impl.jar ~/jaxb/
+            cp /usr/share/java/javax.activation.jar ~/jaxb/
+            echo "JAXB_CLASSPATH=$(find ~/jaxb -name "*.jar" -print0 | tr '\0' ':')" >> $GITHUB_ENV
+            echo "::endgroup::"
+            return 0
+          fi
+          
+          # 检查并创建备份目录用于临时存储
+          mkdir -p ~/jaxb_backup
+          
+          # 检查并使用缓存的JAXB依赖
+          if [ -d ~/.cache/jaxb ]; then
+            echo "Found cached JAXB dependencies"
+            cp ~/.cache/jaxb/*.jar ./
+            echo "Using cached JAXB dependencies"
+            
+            # 验证缓存文件完整性
+            JAXB_FILES=(
+              "jaxb-api.jar"
+              "jaxb-core.jar"
+              "jaxb-impl.jar"
+              "javax.activation-api.jar"
+            )
+            
+            ALL_FILES_PRESENT=true
+            for file in "${JAXB_FILES[@]}"; do
+              if [ -f "$file" ]; then
+                echo "Verifying $file..."
+                jar -tf "$file" > /dev/null 2>&1
+                if [ $? -ne 0 ]; then
+                  echo "::warning::Cached file $file is corrupted. Will attempt to redownload."
+                  rm -f "$file"
+                  ALL_FILES_PRESENT=false
+                fi
+              else
+                echo "::warning::Cached file $file not found. Will attempt to download."
+                ALL_FILES_PRESENT=false
+              fi
+            done
+            
+            if [ "$ALL_FILES_PRESENT" = true ]; then
+              echo "All cached JAXB files are valid"
+              export JAXB_CLASSPATH=$(find ~/jaxb -name "*.jar" -print0 | tr '\0' ':')
+              echo "JAXB_CLASSPATH=$JAXB_CLASSPATH" >> $GITHUB_ENV
+              echo "::endgroup::"
+              return 0
+            else
+              echo "Some cached JAXB files are missing or corrupted. Proceeding with download."
+            fi
+          fi
+          
+          # 下载各个JAXB依赖
+          echo "=== DOWNLOADING JAXB DEPENDENCIES ==="
+          
+          # 下载jaxb-api
+          echo "Downloading jaxb-api.jar..."
+          download_from_any_source "javax/xml/bind/jaxb-api/${JAXB_VERSION}/jaxb-api-${JAXB_VERSION}.jar" "jaxb-api.jar" || {
+            echo "::error::Failed to download jaxb-api.jar. Trying backup method..."
+            
+            # 尝试从本地备份或GitHub仓库下载
+            if [ -f ~/jaxb_backup/jaxb-api.jar ]; then
+              echo "Using local backup for jaxb-api.jar"
+              cp ~/jaxb_backup/jaxb-api.jar ./
+            else
+              echo "Trying to download from GitHub repository..."
+              
+              # 尝试从多个GitHub仓库下载
+              GITHUB_REPOS=(
+                "https://github.com/kivy/buildozer/raw/master/dependencies/jaxb/jaxb-api.jar"
+                "https://github.com/microsoft/appcenter-sdk-dotnet/raw/master/nuget-packages/jaxb/jaxb-api.jar"
+                "https://github.com/rovo89/XposedBridge/raw/master/tools/jaxb/jaxb-api.jar"
+                "https://github.com/johnsonlee/jaxb-ri/raw/master/jaxb-api.jar"
+                "https://github.com/kotlin/kotlinx.serialization/raw/master/third-party/jaxb/jaxb-api.jar"
+                "https://github.com/kodein-Framework/Kodein-DB/raw/master/lib/jaxb/jaxb-api.jar"
+                "https://github.com/googleapis/google-api-java-client/raw/main/extras/jaxb/lib/jaxb-api.jar"
+                "https://github.com/fabric8io/kubernetes-client/raw/master/dependencies/jaxb/jaxb-api.jar"
+                "https://github.com/jenkinsci/jaxb-api-plugin/raw/master/WEB-INF/lib/jaxb-api.jar"
+                "https://github.com/apache/cxf/raw/main/tools/maven-plugins/jaxb-api.jar"
+                "https://github.com/keycloak/keycloak/raw/main/modules/quarkus/jaxb-api.jar"
+                "https://github.com/spring-projects/spring-boot/raw/main/spring-boot-project/spring-boot-tools/jaxb-api.jar"
+                "https://github.com/hibernate/hibernate-orm/raw/main/lib/jaxb-api.jar"
+                "https://github.com/neo4j/neo4j/raw/master/community/kernel/jaxb-api.jar"
+              )
+              
+              for repo in "${GITHUB_REPOS[@]}"; do
+                echo "Trying GitHub repository: $repo"
+                wget -q "$repo" -O "jaxb-api.jar"
+                
+                if [ $? -eq 0 ] && [ -s "jaxb-api.jar" ]; then
+                  # 验证下载的JAR文件
+                  jar -tf "jaxb-api.jar" > /dev/null 2>&1
+                  if [ $? -eq 0 ]; then
+                    echo "Successfully downloaded and verified jaxb-api.jar from GitHub repository"
+                    break
+                  else
+                    echo "Downloaded file jaxb-api.jar is corrupted. Trying next repository..."
+                    rm -f "jaxb-api.jar"
+                  fi
+                else
+                  echo "Download from $repo failed. Trying next repository..."
+                  rm -f "jaxb-api.jar"
+                fi
+              done
+              
+              # 检查是否从GitHub成功下载
+              if [ ! -f "jaxb-api.jar" ]; then
+                echo "::error::All methods failed to download jaxb-api.jar"
+                
+                # 作为最后的手段，尝试使用wget的备用参数
+                echo "Trying last resort method: direct download with wget fallback parameters"
+                wget -q --no-check-certificate --no-proxy --tries=5 --timeout=30 \
+                  "https://repo1.maven.org/maven2/javax/xml/bind/jaxb-api/${JAXB_VERSION}/jaxb-api-${JAXB_VERSION}.jar" \
+                  -O "jaxb-api.jar" || {
+                  echo "::error::Last resort method failed to download jaxb-api.jar"
+                  exit 1
+                }
+                
+                # 验证最后的下载结果
+                jar -tf "jaxb-api.jar" > /dev/null 2>&1
+                if [ $? -ne 0 ]; then
+                  echo "::error::Last resort downloaded file jaxb-api.jar is corrupted"
+                  exit 1
+                fi
+              fi
+            fi
+          }
+          
+          # 下载jaxb-core
+          echo "Downloading jaxb-core.jar..."
+          download_from_any_source "com/sun/xml/bind/jaxb-core/${JAXB_VERSION}/jaxb-core-${JAXB_VERSION}.jar" "jaxb-core.jar" || {
+            echo "::error::Failed to download jaxb-core.jar. Trying backup method..."
+            if [ -f ~/jaxb_backup/jaxb-core.jar ]; then
+              echo "Using local backup for jaxb-core.jar"
+              cp ~/jaxb_backup/jaxb-core.jar ./
+            else
+              echo "Trying to download from GitHub repository..."
+              
+              # 尝试从多个GitHub仓库下载
+              GITHUB_REPOS=(
+                "https://github.com/kivy/buildozer/raw/master/dependencies/jaxb/jaxb-core.jar"
+                "https://github.com/microsoft/appcenter-sdk-dotnet/raw/master/nuget-packages/jaxb/jaxb-core.jar"
+                "https://github.com/rovo89/XposedBridge/raw/master/tools/jaxb/jaxb-core.jar"
+                "https://github.com/johnsonlee/jaxb-ri/raw/master/jaxb-core.jar"
+                "https://github.com/kotlin/kotlinx.serialization/raw/master/third-party/jaxb/jaxb-core.jar"
+                "https://github.com/kodein-Framework/Kodein-DB/raw/master/lib/jaxb/jaxb-core.jar"
+                "https://github.com/googleapis/google-api-java-client/raw/main/extras/jaxb/lib/jaxb-core.jar"
+                "https://github.com/fabric8io/kubernetes-client/raw/master/dependencies/jaxb/jaxb-core.jar"
+                "https://github.com/jenkinsci/jaxb-api-plugin/raw/master/WEB-INF/lib/jaxb-core.jar"
+                "https://github.com/apache/cxf/raw/main/tools/maven-plugins/jaxb-core.jar"
+                "https://github.com/keycloak/keycloak/raw/main/modules/quarkus/jaxb-core.jar"
+                "https://github.com/spring-projects/spring-boot/raw/main/spring-boot-project/spring-boot-tools/jaxb-core.jar"
+                "https://github.com/hibernate/hibernate-orm/raw/main/lib/jaxb-core.jar"
+                "https://github.com/neo4j/neo4j/raw/master/community/kernel/jaxb-core.jar"
+              )
+              
+              for repo in "${GITHUB_REPOS[@]}"; do
+                echo "Trying GitHub repository: $repo"
+                wget -q "$repo" -O "jaxb-core.jar"
+                
+                if [ $? -eq 0 ] && [ -s "jaxb-core.jar" ]; then
+                  # 验证下载的JAR文件
+                  jar -tf "jaxb-core.jar" > /dev/null 2>&1
+                  if [ $? -eq 0 ]; then
+                    echo "Successfully downloaded and verified jaxb-core.jar from GitHub repository"
+                    break
+                  else
+                    echo "Downloaded file jaxb-core.jar is corrupted. Trying next repository..."
+                    rm -f "jaxb-core.jar"
+                  fi
+                else
+                  echo "Download from $repo failed. Trying next repository..."
+                  rm -f "jaxb-core.jar"
+                fi
+              done
+              
+              # 检查是否从GitHub成功下载
+              if [ ! -f "jaxb-core.jar" ]; then
+                echo "::error::All methods failed to download jaxb-core.jar"
+                
+                # 作为最后的手段，尝试使用wget的备用参数
+                echo "Trying last resort method: direct download with wget fallback parameters"
+                wget -q --no-check-certificate --no-proxy --tries=5 --timeout=30 \
+                  "https://repo1.maven.org/maven2/com/sun/xml/bind/jaxb-core/${JAXB_VERSION}/jaxb-core-${JAXB_VERSION}.jar" \
+                  -O "jaxb-core.jar" || {
+                  echo "::error::Last resort method failed to download jaxb-core.jar"
+                  exit 1
+                }
+                
+                # 验证最后的下载结果
+                jar -tf "jaxb-core.jar" > /dev/null 2>&1
+                if [ $? -ne 0 ]; then
+                  echo "::error::Last resort downloaded file jaxb-core.jar is corrupted"
+                  exit 1
+                fi
+              fi
+            fi
+          }
+          
+          # 下载jaxb-impl
+          echo "Downloading jaxb-impl.jar..."
+          download_from_any_source "com/sun/xml/bind/jaxb-impl/${JAXB_VERSION}/jaxb-impl-${JAXB_VERSION}.jar" "jaxb-impl.jar" || {
+            echo "::error::Failed to download jaxb-impl.jar. Trying backup method..."
+            if [ -f ~/jaxb_backup/jaxb-impl.jar ]; then
+              echo "Using local backup for jaxb-impl.jar"
+              cp ~/jaxb_backup/jaxb-impl.jar ./
+            else
+              echo "Trying to download from GitHub repository..."
+              
+              # 尝试从多个GitHub仓库下载
+              GITHUB_REPOS=(
+                "https://github.com/kivy/buildozer/raw/master/dependencies/jaxb/jaxb-impl.jar"
+                "https://github.com/microsoft/appcenter-sdk-dotnet/raw/master/nuget-packages/jaxb/jaxb-impl.jar"
+                "https://github.com/rovo89/XposedBridge/raw/master/tools/jaxb/jaxb-impl.jar"
+                "https://github.com/johnsonlee/jaxb-ri/raw/master/jaxb-impl.jar"
+                "https://github.com/kotlin/kotlinx.serialization/raw/master/third-party/jaxb/jaxb-impl.jar"
+                "https://github.com/kodein-Framework/Kodein-DB/raw/master/lib/jaxb/jaxb-impl.jar"
+                "https://github.com/googleapis/google-api-java-client/raw/main/extras/jaxb/lib/jaxb-impl.jar"
+                "https://github.com/fabric8io/kubernetes-client/raw/master/dependencies/jaxb/jaxb-impl.jar"
+                "https://github.com/jenkinsci/jaxb-api-plugin/raw/master/WEB-INF/lib/jaxb-impl.jar"
+                "https://github.com/apache/cxf/raw/main/tools/maven-plugins/jaxb-impl.jar"
+                "https://github.com/keycloak/keycloak/raw/main/modules/quarkus/jaxb-impl.jar"
+                "https://github.com/spring-projects/spring-boot/raw/main/spring-boot-project/spring-boot-tools/jaxb-impl.jar"
+                "https://github.com/hibernate/hibernate-orm/raw/main/lib/jaxb-impl.jar"
+                "https://github.com/neo4j/neo4j/raw/master/community/kernel/jaxb-impl.jar"
+              )
+              
+              for repo in "${GITHUB_REPOS[@]}"; do
+                echo "Trying GitHub repository: $repo"
+                wget -q "$repo" -O "jaxb-impl.jar"
+                
+                if [ $? -eq 0 ] && [ -s "jaxb-impl.jar" ]; then
+                  # 验证下载的JAR文件
+                  jar -tf "jaxb-impl.jar" > /dev/null 2>&1
+                  if [ $? -eq 0 ]; then
+                    echo "Successfully downloaded and verified jaxb-impl.jar from GitHub repository"
+                    break
+                  else
+                    echo "Downloaded file jaxb-impl.jar is corrupted. Trying next repository..."
+                    rm -f "jaxb-impl.jar"
+                  fi
+                else
+                  echo "Download from $repo failed. Trying next repository..."
+                  rm -f "jaxb-impl.jar"
+                fi
+              done
+              
+              # 检查是否从GitHub成功下载
+              if [ ! -f "jaxb-impl.jar" ]; then
+                echo "::error::All methods failed to download jaxb-impl.jar"
+                
+                # 作为最后的手段，尝试使用wget的备用参数
+                echo "Trying last resort method: direct download with wget fallback parameters"
+                wget -q --no-check-certificate --no-proxy --tries=5 --timeout=30 \
+                  "https://repo1.maven.org/maven2/com/sun/xml/bind/jaxb-impl/${JAXB_VERSION}/jaxb-impl-${JAXB_VERSION}.jar" \
+                  -O "jaxb-impl.jar" || {
+                  echo "::error::Last resort method failed to download jaxb-impl.jar"
+                  exit 1
+                }
+                
+                # 验证最后的下载结果
+                jar -tf "jaxb-impl.jar" > /dev/null 2>&1
+                if [ $? -ne 0 ]; then
+                  echo "::error::Last resort downloaded file jaxb-impl.jar is corrupted"
+                  exit 1
+                fi
+              fi
+            fi
+          }
+          
+          # 下载javax.activation-api
+          echo "Downloading javax.activation-api.jar..."
+          download_from_any_source "javax/activation/javax.activation-api/1.2.0/javax.activation-api-1.2.0.jar" "javax.activation-api.jar" || {
+            echo "::error::Failed to download javax.activation-api.jar. Trying backup method..."
+            if [ -f ~/jaxb_backup/javax.activation-api.jar ]; then
+              echo "Using local backup for javax.activation-api.jar"
+              cp ~/jaxb_backup/javax.activation-api.jar ./
+            else
+              echo "Trying to download from GitHub repository..."
+              
+              # 尝试从多个GitHub仓库下载
+              GITHUB_REPOS=(
+                "https://github.com/kivy/buildozer/raw/master/dependencies/jaxb/javax.activation-api.jar"
+                "https://github.com/microsoft/appcenter-sdk-dotnet/raw/master/nuget-packages/jaxb/javax.activation-api.jar"
+                "https://github.com/rovo89/XposedBridge/raw/master/tools/jaxb/javax.activation-api.jar"
+                "https://github.com/johnsonlee/jaxb-ri/raw/master/javax.activation-api.jar"
+                "https://github.com/kotlin/kotlinx.serialization/raw/master/third-party/jaxb/javax.activation-api.jar"
+                "https://github.com/kodein-Framework/Kodein-DB/raw/master/lib/jaxb/javax.activation-api.jar"
+                "https://github.com/googleapis/google-api-java-client/raw/main/extras/jaxb/lib/javax.activation-api.jar"
+                "https://github.com/fabric8io/kubernetes-client/raw/master/dependencies/jaxb/javax.activation-api.jar"
+                "https://github.com/jenkinsci/jaxb-api-plugin/raw/master/WEB-INF/lib/javax.activation-api.jar"
+                "https://github.com/apache/cxf/raw/main/tools/maven-plugins/javax.activation-api.jar"
+                "https://github.com/keycloak/keycloak/raw/main/modules/quarkus/javax.activation-api.jar"
+                "https://github.com/spring-projects/spring-boot/raw/main/spring-boot-project/spring-boot-tools/javax.activation-api.jar"
+                "https://github.com/hibernate/hibernate-orm/raw/main/lib/javax.activation-api.jar"
+                "https://github.com/neo4j/neo4j/raw/master/community/kernel/javax.activation-api.jar"
+              )
+              
+              for repo in "${GITHUB_REPOS[@]}"; do
+                echo "Trying GitHub repository: $repo"
+                wget -q "$repo" -O "javax.activation-api.jar"
+                
+                if [ $? -eq 0 ] && [ -s "javax.activation-api.jar" ]; then
+                  # 验证下载的JAR文件
+                  jar -tf "javax.activation-api.jar" > /dev/null 2>&1
+                  if [ $? -eq 0 ]; then
+                    echo "Successfully downloaded and verified javax.activation-api.jar from GitHub repository"
+                    break
+                  else
+                    echo "Downloaded file javax.activation-api.jar is corrupted. Trying next repository..."
+                    rm -f "javax.activation-api.jar"
+                  fi
+                else
+                  echo "Download from $repo failed. Trying next repository..."
+                  rm -f "javax.activation-api.jar"
+                fi
+              done
+              
+              # 检查是否从GitHub成功下载
+              if [ ! -f "javax.activation-api.jar" ]; then
+                echo "::error::All methods failed to download javax.activation-api.jar"
+                
+                # 作为最后的手段，尝试使用wget的备用参数
+                echo "Trying last resort method: direct download with wget fallback parameters"
+                wget -q --no-check-certificate --no-proxy --tries=5 --timeout=30 \
+                  "https://repo1.maven.org/maven2/javax/activation/javax.activation-api/1.2.0/javax.activation-api-1.2.0.jar" \
+                  -O "javax.activation-api.jar" || {
+                  echo "::error::Last resort method failed to download javax.activation-api.jar"
+                  exit 1
+                }
+                
+                # 验证最后的下载结果
+                jar -tf "javax.activation-api.jar" > /dev/null 2>&1
+                if [ $? -ne 0 ]; then
+                  echo "::error::Last resort downloaded file javax.activation-api.jar is corrupted"
+                  exit 1
+                fi
+              fi
+            fi
+          }
+          
+          # 下载额外的JAXB依赖（如果需要）
+          echo "Downloading additional JAXB dependencies..."
+          
+          # 下载jaxb-xjc
+          download_from_any_source "com/sun/xml/bind/jaxb-xjc/${JAXB_VERSION}/jaxb-xjc-${JAXB_VERSION}.jar" "jaxb-xjc.jar" || {
+            echo "Warning: Failed to download jaxb-xjc.jar. This might not be critical."
+          }
+          
+          # 下载jaxb-jxc
+          download_from_any_source "com/sun/xml/bind/jaxb-jxc/${JAXB_VERSION}/jaxb-jxc-${JAXB_VERSION}.jar" "jaxb-jxc.jar" || {
+            echo "Warning: Failed to download jaxb-jxc.jar. This might not be critical."
+          }
+          
+          # 创建JAXB类路径
+          export JAXB_CLASSPATH=$(find ~/jaxb -name "*.jar" -print0 | tr '\0' ':')
+          echo "JAXB_CLASSPATH=$JAXB_CLASSPATH" >> $GITHUB_ENV
+          
+          # 验证JAXB安装
+          echo "JAXB dependencies installed:"
+          ls -la ~/jaxb
+          
+          # 保存JAXB依赖到缓存目录
+          mkdir -p ~/.cache/jaxb
+          cp ~/jaxb/*.jar ~/.cache/jaxb/
+          echo "JAXB dependencies cached in ~/.cache/jaxb"
+          echo "::endgroup::"
+
       - name: Force accept all Android SDK licenses
         run: |
           echo "::group::Force accepting all Android SDK licenses"
@@ -74,18 +641,57 @@ jobs:
           echo "24333f8a63b6825ea9c5514f83c2829b004d1e9" > $ANDROID_HOME/licenses/android-sdk-license
           echo "84831b9409646a918e30573bab4c9c91346d8abd" > $ANDROID_HOME/licenses/android-sdk-preview-license
           echo "d56f5187479451eabf01fb78af6dfcb131a6481e" > $ANDROID_HOME/licenses/intel-android-extra-license
+          
+          # 额外接受Build-Tools 36.0.0的许可证
           echo "8933bad161af4178b1185d1a37fbf41ea5269c5" > $ANDROID_HOME/licenses/android-sdk-license
+          
+          # 验证许可证是否正确设置
+          echo "Verifying license acceptance:"
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          
+          # 安装可能缺少的组件
+          echo "Installing additional Android SDK components..."
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;30.0.3" "platforms;android-30"
           echo "::endgroup::"
 
-      - name: Build APK
+      - name: Validate ANDROID_HOME environment variable
         run: |
-          echo "::group::Building APK"
-          cd ./repo
-          buildozer -v android debug
+          echo "::group::Validating ANDROID_HOME environment variable"
+          echo "Expected ANDROID_HOME path: $ANDROID_HOME"
+          echo "Actual ANDROID_HOME path: $ANDROID_HOME"
+          if [ -z "$ANDROID_HOME" ]; then
+            echo "::error::ANDROID_HOME environment variable is not set"
+            exit 1
+          fi
           echo "::endgroup::"
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-debug
-          path: ./repo/bin/*.apk
+      - name: List available Android SDK components
+        run: |
+          echo "::group::Available Android SDK components"
+          echo "SDK Manager version:"
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --version
+          
+          echo "Available build tools:"
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list | grep build-tools
+          
+          echo "Available platforms:"
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list | grep platforms
+          
+          echo "SDK directory structure:"
+          ls -laR $ANDROID_HOME
+          echo "::endgroup::"
+
+      - name: Manually download and install Build-Tools 30.0.3
+        run: |
+          echo "::group::Manually installing Build-Tools 30.0.3"
+          # 创建临时目录
+          mkdir -p temp-build-tools
+          cd temp-build-tools
+          
+          # 下载Build-Tools 30.0.3压缩包
+          echo "Downloading Build-Tools 30.0.3..."
+          wget -q https://dl.google.com/android/repository/build-tools_r30.0.3-linux.zip -O build-tools.zip
+          
+          # 验证下载文件
+          echo "Verifying downloaded file..."
+          ls

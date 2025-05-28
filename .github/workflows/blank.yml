@@ -13,14 +13,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          submodules: recursive  # 包含子模块（如有）
-          fetch-depth: 0  # 获取完整的提交历史，便于调试
+          submodules: recursive
+          fetch-depth: 0
+          # 添加路径参数确保检出到正确目录
+          path: ./repo
 
       - name: Setup Python 3.10
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          cache: 'pip'  # 自动缓存 pip 依赖
+          # 移除自动缓存，使用自定义缓存逻辑
+          # cache: 'pip'
 
       - name: Validate project files
         run: |
@@ -29,21 +32,38 @@ jobs:
           echo "Contents of current directory:"
           ls -la
           
-          # 检查 requirements.txt 是否存在
-          if [ -f "requirements.txt" ]; then
-            echo "requirements.txt found"
-            cat requirements.txt
+          # 检查仓库目录是否存在
+          if [ -d "./repo" ]; then
+            echo "Repository checked out to ./repo"
+            cd ./repo
+            echo "Contents of repository:"
+            ls -la
+            
+            # 检查 requirements.txt 是否存在
+            if [ -f "requirements.txt" ]; then
+              echo "requirements.txt found"
+              cat requirements.txt
+            else
+              echo "::warning::requirements.txt not found in repository root"
+              echo "Creating minimal requirements.txt for buildozer"
+              cat > requirements.txt << EOF
+buildozer
+cython
+kivy
+pillow
+EOF
+              echo "Created minimal requirements.txt"
+            fi
+            
+            # 检查 buildozer.spec 是否存在
+            if [ -f "buildozer.spec" ]; then
+              echo "buildozer.spec found"
+            else
+              echo "::warning::buildozer.spec not found in repository root"
+            fi
           else
-            echo "::warning::requirements.txt not found in repository root"
-            echo "Creating empty requirements.txt for caching purposes"
-            touch requirements.txt
-          fi
-          
-          # 检查 buildozer.spec 是否存在
-          if [ -f "buildozer.spec" ]; then
-            echo "buildozer.spec found"
-          else
-            echo "::warning::buildozer.spec not found in repository root"
+            echo "::error::Repository not checked out to ./repo"
+            exit 1
           fi
           echo "::endgroup::"
 
@@ -53,13 +73,15 @@ jobs:
           path: |
             ~/.cache/pip
             **/__pycache__
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          # 使用当前时间戳作为缓存键，确保每次都能继续执行
+          key: ${{ runner.os }}-pip-${{ github.run_id }}
           restore-keys: |
             ${{ runner.os }}-pip-
 
       - name: Install dependencies
         run: |
           echo "::group::Installing dependencies"
+          cd ./repo
           python -m pip install --upgrade pip
           python -m pip install buildozer cython
           echo "::endgroup::"
@@ -72,7 +94,7 @@ jobs:
             platforms;android-30
             platform-tools
             tools
-            ndk;25.2.9519653  # 显式指定 NDK 版本
+            ndk;25.2.9519653
           license-accept: true
 
       - name: Cache Android SDK
@@ -81,13 +103,14 @@ jobs:
           path: |
             $ANDROID_HOME
             $ANDROID_HOME/cmdline-tools
-          key: ${{ runner.os }}-android-${{ hashFiles('buildozer.spec') }}
+          key: ${{ runner.os }}-android-${{ github.run_id }}
           restore-keys: |
             ${{ runner.os }}-android-
 
       - name: Generate buildozer.spec (with AIDL support)
         run: |
           echo "::group::Generating buildozer.spec"
+          cd ./repo
           echo "Creating default buildozer.spec dynamically"
           
           # 创建基本的 buildozer.spec 内容
@@ -120,6 +143,7 @@ jobs:
       - name: Validate Android SDK environment
         run: |
           echo "::group::Validating Android SDK environment"
+          cd ./repo
           echo "=== ANDROID ENVIRONMENT CHECK ==="
           echo "ANDROID_HOME: $ANDROID_HOME"
           echo "SDK Tools Version:"
@@ -133,6 +157,7 @@ jobs:
       - name: List project files (for debugging)
         run: |
           echo "::group::Listing project files"
+          cd ./repo
           echo "=== PROJECT FILE STRUCTURE ==="
           ls -laR .
           echo "=== AIDL FILES FOUND ==="
@@ -142,6 +167,7 @@ jobs:
       - name: Accept SDK licenses (debug version)
         run: |
           echo "::group::Accepting SDK licenses"
+          cd ./repo
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
           $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --list
           echo "::endgroup::"
@@ -149,6 +175,7 @@ jobs:
       - name: Test AIDL tool with minimal parameters
         run: |
           echo "::group::Testing AIDL compiler"
+          cd ./repo
           echo "=== TESTING AIDL COMPILER ==="
           # 替换为你的实际 AIDL 文件路径（示例路径）
           AIDL_FILE_PATH="src/main/aidl/com/example/MyService.aidl"
@@ -178,9 +205,10 @@ jobs:
       - name: Build APK (with debug logs)
         run: |
           echo "::group::Building APK"
+          cd ./repo
           echo "=== STARTING APK BUILD ==="
           export ANDROID_SDK_ROOT=$ANDROID_HOME
-          export BUILDOZER_DEBUG=1  # 启用 Buildozer 调试模式
+          export BUILDOZER_DEBUG=1
           
           # 检查 buildozer 配置
           buildozer android debug --print_config_only
@@ -208,5 +236,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: kivy-apk
-          path: artifacts/
-          retention-days: 7  # 保留7天
+          path: ./repo/artifacts/
+          retention-days: 7

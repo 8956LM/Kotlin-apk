@@ -3,6 +3,7 @@ name: Build Kivy APK
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:  # 允许手动触发
 
 jobs:
   build:
@@ -16,6 +17,14 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+
+      - name: Cache Python dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
 
       - name: Install Dependencies
         run: |
@@ -31,14 +40,40 @@ jobs:
             platform-tools
           license-accept: true
 
-      - name: Verify buildozer.spec exists
+      - name: Cache Android SDK
+        uses: actions/cache@v4
+        with:
+          path: $ANDROID_HOME
+          key: ${{ runner.os }}-android-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-android-
+
+      - name: Generate buildozer.spec dynamically
         run: |
-          if [ ! -f buildozer.spec ]; then
-            buildozer init
-            # 修改默认配置（可选）
-            sed -i 's/package.name = myapp/package.name = your_app_name/' buildozer.spec
-          fi
-          cat buildozer.spec  # 打印配置用于调试
+          echo "Creating default buildozer.spec dynamically"
+          
+          # 创建基本的 buildozer.spec 内容
+          cat > buildozer.spec << EOF
+[app]
+title = Your App Title
+package.name = your_app_name
+package.domain = com.yourdomain
+version = 1.0.0
+source.dir = .
+source.include_exts = py,png,jpg,kv,atlas,ttf
+requirements = python3,kivy,pillow
+android.permissions = INTERNET,READ_EXTERNAL_STORAGE,WRITE_EXTERNAL_STORAGE,CAMERA
+android.api = 33
+android.minapi = 23
+android.sdk = 33
+android.ndk = 25c
+android.arch = armeabi-v7a
+orientation = portrait
+fullscreen = 0
+EOF
+          
+          # 打印配置用于调试
+          cat buildozer.spec
 
       - name: Manually Accept SDK Licenses
         run: |

@@ -36,8 +36,6 @@ jobs:
             ls -la
             
 
-
-
           if [ -f "requirements.txt" ]; then
             echo "requirements.txt found"
             cat requirements.txt
@@ -52,6 +50,7 @@ jobs:
           EOF
             echo "Created minimal requirements.txt"
           fi
+
 
 
 
@@ -86,7 +85,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v2
+        uses: actions/setup-android@v2
         with:
           packages: |
             build-tools;30.0.3
@@ -228,12 +227,13 @@ jobs:
             echo "WARNING: AIDL file not found at $AIDL_FILE_PATH"
             echo "Creating sample AIDL file for testing"
             mkdir -p src/main/aidl/com/example
-            cat > "$AIDL_FILE_PATH" << 'EOF'
-            package com.example;
-            interface MyService {
-            void basicTypes(int anInt, long aLong, boolean aBoolean);
-            }
-            EOF
+            
+            # 使用 tee 命令替代 heredoc
+            echo "package com.example;" > "$AIDL_FILE_PATH"
+            echo "interface MyService {" >> "$AIDL_FILE_PATH"
+            echo "  void basicTypes(int anInt, long aLong, boolean aBoolean);" >> "$AIDL_FILE_PATH"
+            echo "}" >> "$AIDL_FILE_PATH"
+            
             echo "Sample AIDL file created"
           fi
           echo "::endgroup::"
